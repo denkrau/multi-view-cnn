@@ -243,13 +243,13 @@ class Model(object):
 			print("Training finished!")
 			summary_writer.close()
 
-	def predict(img, y=None, n_views=globals.N_VIEWS, ckpt_file=None):
+	def predict(self, img, y=None, n_views=globals.N_VIEWS, ckpt_file=None):
 		if ckpt_file is None:
-			ckpt_file = os.join.path(globals.CKPT_PATH, globals.CKPT_FILE)
+			ckpt_file = os.path.join(globals.CKPT_PATH, globals.CKPT_FILE)
 		saver = tf.train.Saver()
 		weights, biases = self.get_weights()
 		#if multi view object is given
-		if x.shape[-1] > 1:
+		if img.shape[-1] > 1:
 			x = tf.placeholder("float", [None, globals.IMAGE_SIZE, globals.IMAGE_SIZE, n_views], name="x")
 			view_discrimination_scores = []
 			view_descriptors = []
@@ -270,10 +270,12 @@ class Model(object):
 			x = tf.placeholder("float", [None, globals.IMAGE_SIZE, globals.IMAGE_SIZE, 1], name="x")
 			pred = self.cnn_convs(x, weights, biases)
 			pred = self.cnn_fcs(pred, weights, biases)
+			pred = tf.nn.softmax(pred)
 		with tf.Session() as sess:
 			saver.restore(sess, ckpt_file)
 			classification = sess.run(pred, feed_dict={x: img})
-			print(classification)
+			
+		return classification
 
 	def get_weights(self):
 		with tf.variable_scope("cnn", reuse=tf.AUTO_REUSE):
