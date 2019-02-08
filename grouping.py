@@ -126,6 +126,7 @@ class Grouping(object):
 			view_descriptors = np.split(multi_view_descriptor, globals.N_VIEWS, axis=0) #[[1, 1, 6, 6, 512]]
 			groups = np.unique(group_idx)
 			n_groups = groups.shape[0]
+			descriptor_channels = view_descriptors.shape[-1]
 			#divide each view descriptor into a group and pool them afterwards
 			for i in range(globals.N_VIEWS):
 				#check every group index. if group has corresponding view descriptors pool them
@@ -134,11 +135,11 @@ class Grouping(object):
 					single_group_descriptors = [] #[n_group_elements, 1, 6, 6, 512]
 					for j, idx in enumerate(group_idx):
 						if idx == i:
-							single_group_descriptors.append(np.reshape(view_descriptors[j], [1, 6, 6, 512]))
+							single_group_descriptors.append(np.reshape(view_descriptors[j], [1, 6, 6, descriptor_channels]))
 					batch_group_descriptors.append(np.mean(single_group_descriptors, axis=0))
 				else:
-					batch_group_descriptors.append(np.zeros([1,6,6,512]))
+					batch_group_descriptors.append(np.zeros([1,6,6,descriptor_channels]))
 					
-		batch_group_descriptors = np.reshape(batch_group_descriptors, [-1, globals.N_VIEWS, 1, 6, 6, 512])
+		batch_group_descriptors = np.reshape(batch_group_descriptors, [-1, globals.N_VIEWS, 1, 6, 6, descriptor_channels])
 
 		return batch_group_descriptors

@@ -88,7 +88,7 @@ class Model(object):
 		#with single view this is okay, but with multi-view there has to be
 		#subbatches with size of view count
 		shape_descriptors = tf.map_fn(self.get_shape_descriptors, group_descriptors)
-		shape_descriptors = tf.reshape(shape_descriptors, [-1, globals.N_VIEWS, 4096])
+		shape_descriptors = tf.reshape(shape_descriptors, [-1, globals.N_VIEWS, weights["wd2"].get_shape().as_list()[0]])
 		#shape_descriptors = tf.convert_to_tensor(shape_descriptors) #[-1, n_groups, 4096]
 		#print("cnn_fcs_grouping shape_descriptors", shape_descriptors.shape)
 		#print("cnn_fcs_grouping group_weights", group_weights.shape)
@@ -203,7 +203,7 @@ class Model(object):
 
 					if is_multi_view:
 						summary, opt, scores, descr, v = sess.run([merged, optimizer, view_discrimination_scores, view_descriptors, views], feed_dict={x: batch_x, y: batch_y})
-						print(scores)
+						#print(scores)
 						#print(descr[0,0,0,3,3,:15])
 						#print(descr[0,1,0,3,3,:15])
 						summary, loss, acc = sess.run([merged, cost, accuracy], feed_dict={x: batch_x, y: batch_y})
@@ -285,22 +285,22 @@ class Model(object):
 					#vgg-m
 					"wc1": tf.get_variable("W0", shape=(7,7,1,96), initializer=tf.contrib.layers.xavier_initializer()),
 					"wc2": tf.get_variable("W1", shape=(5,5,96,256), initializer=tf.contrib.layers.xavier_initializer()),
-					"wc3": tf.get_variable("W2", shape=(3,3,256,512), initializer=tf.contrib.layers.xavier_initializer()),
-					"wc4": tf.get_variable("W3", shape=(3,3,512,512), initializer=tf.contrib.layers.xavier_initializer()),
-					"wc5": tf.get_variable("W4", shape=(3,3,512,512), initializer=tf.contrib.layers.xavier_initializer()),
-					"wd1": tf.get_variable("W5", shape=(6*6*512, 4096), initializer=tf.contrib.layers.xavier_initializer()),
+					"wc3": tf.get_variable("W2", shape=(3,3,256,384), initializer=tf.contrib.layers.xavier_initializer()),
+					"wc4": tf.get_variable("W3", shape=(3,3,384,384), initializer=tf.contrib.layers.xavier_initializer()),
+					"wc5": tf.get_variable("W4", shape=(3,3,384,256), initializer=tf.contrib.layers.xavier_initializer()),
+					"wd1": tf.get_variable("W5", shape=(6*6*256, 4096), initializer=tf.contrib.layers.xavier_initializer()),
 					"wd2": tf.get_variable("W6", shape=(4096, 4096), initializer=tf.contrib.layers.xavier_initializer()),
 					"wd3": tf.get_variable("W7", shape=(4096, globals.N_CLASSES), initializer=tf.contrib.layers.xavier_initializer()),
 					#grouping module
-					"wd4": tf.get_variable("W8", shape=(6*6*512, 1), initializer=tf.contrib.layers.xavier_initializer())
+					"wd4": tf.get_variable("W8", shape=(6*6*256, 1), initializer=tf.contrib.layers.xavier_initializer())
 				}
 			with tf.name_scope("biases"):
 				biases = {
 					'bc1': tf.get_variable('B0', shape=(96), initializer=tf.contrib.layers.xavier_initializer()),
 					'bc2': tf.get_variable('B1', shape=(256), initializer=tf.contrib.layers.xavier_initializer()),
-					'bc3': tf.get_variable('B2', shape=(512), initializer=tf.contrib.layers.xavier_initializer()),
-					'bc4': tf.get_variable('B3', shape=(512), initializer=tf.contrib.layers.xavier_initializer()),
-					'bc5': tf.get_variable('B4', shape=(512), initializer=tf.contrib.layers.xavier_initializer()),
+					'bc3': tf.get_variable('B2', shape=(384), initializer=tf.contrib.layers.xavier_initializer()),
+					'bc4': tf.get_variable('B3', shape=(384), initializer=tf.contrib.layers.xavier_initializer()),
+					'bc5': tf.get_variable('B4', shape=(256), initializer=tf.contrib.layers.xavier_initializer()),
 					'bd1': tf.get_variable('B5', shape=(4096), initializer=tf.contrib.layers.xavier_initializer()),
 					'bd2': tf.get_variable('B6', shape=(4096), initializer=tf.contrib.layers.xavier_initializer()),
 					'bd3': tf.get_variable('B7', shape=(globals.N_CLASSES), initializer=tf.contrib.layers.xavier_initializer()),
