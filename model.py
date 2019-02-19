@@ -12,18 +12,18 @@ class Model(object):
 		self.grouping = grouping.Grouping()
 		self.data = data.Data()
 
-	"""Apply five convolutions and three pooling operations to input
-	   according to vgg-m architecture.
-
-	Args:
-		x: input image
-		weights: weights of filter
-		biases: biases of layers
-
-	Returns:
-		conv5: output of fifth convolutional layer; shape [1, 6, 6, 512]
-	"""
 	def cnn_convs(self, x, weights, biases):
+		"""Apply five convolutions and three pooling operations to input 
+		according to vgg-m architecture.
+
+		Args:
+			x: input image
+			weights: weights of filter
+			biases: biases of layers
+
+		Returns:
+			conv5: output of fifth convolutional layer; shape [1, 6, 6, 512]
+		"""
 		with tf.name_scope("conv1"):
 			conv1 = self.conv2d(x, weights['wc1'], biases['bc1'], strides=2, padding="VALID") #(1, 109, 109, 96)
 			conv1 = self.max_pool2d(conv1, size=3, strides=2, padding="VALID") #(1, 54, 54, 96)
@@ -71,7 +71,7 @@ class Model(object):
 		return fc3
 
 	def cnn_fcs_grouping(self, group_descriptors, group_weights, weights, biases):
-		"""Classifies batch element object from views by taking group descriptors as input.
+		"""Classifies each batch element object from views by taking group descriptors of whole batch as input.
 
 		Args:
 			group_descriptors: group descriptors of pooled views, for simplicity
@@ -84,36 +84,29 @@ class Model(object):
 		Returns:
 			fc3: predicted classification of object or views, respectively; shape [-1, 1, n_classes]
 		"""
-		#shape descriptor contains all results over all views and batches
-		#with single view this is okay, but with multi-view there has to be
-		#subbatches with size of view count
 		shape_descriptors = tf.map_fn(self.get_shape_descriptors, group_descriptors)
 		shape_descriptors = tf.reshape(shape_descriptors, [-1, globals.N_VIEWS, weights["wd2"].get_shape().as_list()[0]])
-		#shape_descriptors = tf.convert_to_tensor(shape_descriptors) #[-1, n_groups, 4096]
-		#print("cnn_fcs_grouping shape_descriptors", shape_descriptors.shape)
-		#print("cnn_fcs_grouping group_weights", group_weights.shape)
 
 		#make tensors ready for single shape descriptor calculation
 		#transpose, but keep first dimension as batch dimension
 		shape_descriptors = tf.transpose(shape_descriptors, perm=[0,2,1])
+
 		#append dimension at the end for valid matrix multiplication
 		group_weights = tf.expand_dims(group_weights, axis=2)
 
 		# compute shape descriptor dependent on group weights
-		final_shape_descriptor = tf.divide(tf.matmul(shape_descriptors, group_weights), tf.reduce_sum(group_weights, [0,1]))
-		#transpose again for final mattrix multiplication
-		final_shape_descriptor = tf.transpose(final_shape_descriptor, perm=[0,2,1]) #[-1, 1, 4096]
-		#print("cnn_fcs_grouping final_shape_descriptor", final_shape_descriptor.shape)
+		final_shape_descriptor = tf.divide(tf.matmul(shape_descriptors, group_weights), tf.expand_dims(tf.reduce_sum(group_weights, 1), axis=2))
 
-		#fc3 = tf.reshape(fc2, [-1, weights['wd3'].get_shape().as_list()[0]])
-		#fc3 = tf.add(tf.matmul(final_shape_descriptor, tf.expand_dims(weights['wd3'], axis=0)), tf.expand_dims(biases['bd3'], axis=0))
+		#transpose again for final matrix multiplication
+		final_shape_descriptor = tf.transpose(final_shape_descriptor, perm=[0,2,1]) #[-1, 1, 4096]
+
 		final_shape_descriptor = tf.reshape(final_shape_descriptor, [-1, weights['wd3'].get_shape().as_list()[0]]) #[-1, 4096]
 		fc3 = tf.add(tf.matmul(final_shape_descriptor, weights['wd3']), biases['bd3'])
-		#fc3 = tf.nn.softmax(fc3)    
 		
 		return fc3
 
-	"""Calculates view discrimination scores of a view
+	def cnn_grouping(self, x, weights, biases):
+		"""Calculates the view discrimination score of a view.
 
 		Args:
 			x: view descriptor as input; shape [1, 6, 6, 512]
@@ -122,8 +115,7 @@ class Model(object):
 
 		Returns:
 			fc1: view discrimination score of input view
-	"""
-	def cnn_grouping(self, x, weights, biases):
+		"""
 		with tf.name_scope("fc4"):
 			fc1 = tf.reshape(x, [-1, weights['wd4'].get_shape().as_list()[0]])
 			fc1 = tf.add(tf.matmul(fc1, weights['wd4']), biases['bd4'])
@@ -150,26 +142,25 @@ class Model(object):
 		# if shape of x placeholder relates to n_views dimension a multi-view input is supposed
 		if x.shape[1] == globals.N_VIEWS:
 			is_multi_view = True
+			batch_size = globals.BATCH_SIZE_MULTI
 			# feed each batch element of input in first part of cnn (conv layers) to get view descriptors and scores of each channel, i.e. view
 			# view_descriptors = [-1, n_views, 1, 6, 6, 512], view_discrimination_scores = [-1, n_views, 1, 1] -> [-1, n_views]
 			with tf.name_scope("view_descriptors_and_scores"):
-				view_descriptors, view_discrimination_scores, views = tf.map_fn(self.get_view_descriptors_and_scores, x, dtype=(tf.float32, tf.float32, tf.float32))
-				tf.summary.histogram("view_descriptors", view_descriptors)
-				tf.summary.histogram("view_scores", view_discrimination_scores)
+				view_descriptors, view_discrimination_scores = tf.map_fn(self.get_view_descriptors_and_scores, x, dtype=(tf.float32, tf.float32))
+				if globals.USE_SUMMARY:
+					tf.summary.histogram("view_descriptors", view_descriptors)
+					tf.summary.histogram("view_scores", view_discrimination_scores)
 				#make scores more compact
 				view_discrimination_scores = tf.reshape(view_discrimination_scores, [-1, globals.N_VIEWS])
 
 			with tf.name_scope("group_weights"):
 				batch_group_idx, batch_group_weights = tf.map_fn(self.grouping.get_group_weights, view_discrimination_scores, dtype=(tf.int32, tf.float32))
 
-			# create placeholder for group descriptors and weights which is fed into second part of network
-			#group_descriptors = tf.placeholder("float", [None, globals.N_VIEWS, 1, 6, 6, 512], name="group_descriptors")
-			#group_weights = tf.placeholder("float", [None, globals.N_VIEWS], name="group_weights")
 			with tf.name_scope("grouping"):
-				#pred = self.cnn_fcs_grouping(group_descriptors, batch_group_weights, weights, biases)
 				batch_group_descriptors = tf.map_fn(self.grouping.get_group_descriptors, [batch_group_idx, view_descriptors], dtype=tf.float32)
-				pred = self.cnn_fcs_grouping(view_descriptors, batch_group_weights, weights, biases)
+				pred = self.cnn_fcs_grouping(batch_group_descriptors, batch_group_weights, weights, biases)
 		else:
+			batch_size = globals.BATCH_SIZE_SINGLE
 			# feed input to connected cnn
 			pred = self.cnn_convs(x, weights, biases)
 			pred = self.cnn_fcs(pred, weights, biases)
@@ -179,35 +170,42 @@ class Model(object):
 		accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 		init = tf.global_variables_initializer()
 		saver = tf.train.Saver()
-		merged = tf.summary.merge_all()
+		if globals.USE_SUMMARY:
+			merged = tf.summary.merge_all()
 		with tf.Session() as sess:
-			#sess = tf_debug.LocalCLIDebugWrapperSession(sess)
 			if ckpt is None:
 				sess.run(init)
 			else:
 				saver.restore(sess, ckpt)
-			train_loss = []
-			test_loss = []
-			train_accuracy = []
-			test_accuracy = []
-			summary_writer = tf.summary.FileWriter('./Output', sess.graph)
+			if globals.USE_SUMMARY:
+				summary_writer = tf.summary.FileWriter(globals.SUMMARY_PATH, sess.graph)
 			for i in range(globals.TRAINING_ITERS):
 				x_train, y_train = self.data.shuffle(x_train, y_train)
 				x_test, y_test = self.data.shuffle(x_test, y_test)
-				#y_train_one_hot, y_test_one_hot = self.data.one_hot(globals.N_CLASSES, y_train, y_test)
-				for batch in range(len(x_train)//globals.BATCH_SIZE):
-					batch_x = x_train[batch*globals.BATCH_SIZE:min((batch+1)*globals.BATCH_SIZE,len(x_train))]
-					batch_y = y_train[batch*globals.BATCH_SIZE:min((batch+1)*globals.BATCH_SIZE,len(y_train))]
+				
+				train_loss = []
+				test_loss = []
+				train_accuracy = []
+				test_accuracy = []
+
+				for batch in range(len(x_train)//batch_size):
+					print("Iter", i, "Batch", batch, "of", len(x_train)//batch_size, end="\r")
+					batch_x = x_train[batch*batch_size:min((batch+1)*batch_size,len(x_train))]
+					batch_y = y_train[batch*batch_size:min((batch+1)*batch_size,len(y_train))]
 					# Run optimization op (backprop).
 					    # Calculate batch loss and accuracy
 
 					if is_multi_view:
-						summary, opt, scores, descr, v = sess.run([merged, optimizer, view_discrimination_scores, view_descriptors, views], feed_dict={x: batch_x, y: batch_y})
+						if globals.USE_SUMMARY:
+							summary, opt, scores, descr = sess.run([merged, optimizer, view_discrimination_scores, view_descriptors], feed_dict={x: batch_x, y: batch_y})
+						else:
+							opt = sess.run([optimizer], feed_dict={x: batch_x, y: batch_y})
 						#print(scores)
 						#print(descr[0,0,0,3,3,:15])
 						#print(descr[0,1,0,3,3,:15])
-						summary, loss, acc = sess.run([merged, cost, accuracy], feed_dict={x: batch_x, y: batch_y})
-						summary_writer.add_summary(summary)
+						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y})
+						if globals.USE_SUMMARY:
+							summary_writer.add_summary(summary)
 
 					else:
 						opt = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y})
@@ -221,16 +219,16 @@ class Model(object):
 				#divide in batches and calculate mean to prevent OOM error
 				test_batch_accuracy = []
 				test_batch_valid_loss = []
-				for test_batch in range(len(x_test)//globals.BATCH_SIZE):
-					batch_x_test = x_test[test_batch*globals.BATCH_SIZE:min((test_batch+1)*globals.BATCH_SIZE, len(x_test))]
-					batch_y_test = y_test[test_batch*globals.BATCH_SIZE:min((test_batch+1)*globals.BATCH_SIZE, len(y_test))]
+				for test_batch in range(len(x_test)//batch_size):
+					batch_x_test = x_test[test_batch*batch_size:min((test_batch+1)*batch_size, len(x_test))]
+					batch_y_test = y_test[test_batch*batch_size:min((test_batch+1)*batch_size, len(y_test))]
 					if is_multi_view:
-						test_acc,valid_loss = sess.run([accuracy,cost], feed_dict={x: batch_x_test,y : batch_y_test})
+						test_acc, valid_loss = sess.run([accuracy,cost], feed_dict={x: batch_x_test, y : batch_y_test})
 					else:
-						test_acc,valid_loss = sess.run([accuracy,cost], feed_dict={x: batch_x_test,y : batch_y_test})
+						test_acc, valid_loss = sess.run([accuracy,cost], feed_dict={x: batch_x_test, y : batch_y_test})
 					test_batch_accuracy.append(test_acc)
 					test_batch_valid_loss.append(valid_loss)
-		        #test_acc,valid_loss = sess.run([accuracy,cost], feed_dict={x: x_test_x,y : y_test_y})
+
 				train_loss.append(loss)
 				test_loss.append(np.mean(test_batch_valid_loss))
 				train_accuracy.append(acc)
@@ -241,7 +239,8 @@ class Model(object):
 			except Exception as e:
 				print(e)
 			print("Training finished!")
-			summary_writer.close()
+			if globals.USE_SUMMARY:
+				summary_writer.close()
 
 	def predict(self, img, y=None, n_views=globals.N_VIEWS, ckpt_file=None):
 		if ckpt_file is None:
@@ -320,24 +319,24 @@ class Model(object):
 			view_discrimination_scores: view discriminations scores of element for all views; shape [n_views, 1, 1]
 
 		"""
-		view_descriptors = [] #[n_views, 1, 6, 6, 512]
-		view_discrimination_scores = [] #[n_views, 1, 1]
-		# expand with batch dimension to get shape [1, image_size, image_size, n_views] which is compatible with convs
+		view_descriptors = [] #n_views * [1, 6, 6, 512]
+		view_discrimination_scores = [] #n_views * [1, 1]
 		weights, biases = self.get_weights()
-		#split across channels to get tensor of each view
-		views = tf.split(x, num_or_size_splits=globals.N_VIEWS, axis=0) #[n_views, 1, image_size, image_size, 1]
+		#split across views to get list of tensors of each view
+		views = tf.split(x, num_or_size_splits=globals.N_VIEWS, axis=0) #n_views * [1, image_size, image_size, 1]
 		for i in views:
 			view_descriptor = self.cnn_convs(i, weights, biases)
 			view_descriptors.append(view_descriptor)
 			view_discrimination_score = self.cnn_grouping(view_descriptor, weights, biases)
 			view_discrimination_scores.append(view_discrimination_score)
-		return tf.convert_to_tensor(view_descriptors), tf.convert_to_tensor(view_discrimination_scores), tf.convert_to_tensor(views)
+		return tf.convert_to_tensor(view_descriptors), tf.convert_to_tensor(view_discrimination_scores)
 
 	def get_shape_descriptors(self, group_descriptors):
-		"""Generates shape descriptors from a given batch element containing group descriptors.
+		"""Generates shape descriptors from a given batch element containing group descriptors. This is called
+		for every batch element.
 
-	   Args:
-	   		group_descriptors: pool results of view descriptors divided in each groups of each batch;
+	  	Args:
+	   		group_descriptors: pooled results of view descriptors divided in groups;
 	   						   shape [n_views, 1, 6, 6, 512]
 
 	   	Returns:
@@ -346,10 +345,8 @@ class Model(object):
 							   shape [n_views, 1, 4096]
 		"""
 		shape_descriptors = []
-		#expand with batch dimension: [1, n_views, 1, 6, 6, 512]
-		#group_descriptors = tf.expand_dims(group_descriptors, axis=0)
 		weights, biases = self.get_weights()
-		#get every convolution after conv5 ,i.e. the view descriptor, of each view
+		#get the shape descriptor i.e. the output of fc7 of every group descriptor
 		for i in tf.split(group_descriptors, num_or_size_splits=globals.N_VIEWS, axis=0):
 			fc1 = tf.reshape(i, [-1, weights['wd1'].get_shape().as_list()[0]])
 			fc1 = tf.add(tf.matmul(fc1, weights['wd1']), biases['bd1'])

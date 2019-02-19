@@ -41,8 +41,6 @@ class Data(object):
 		#one-hot encode labels
 		#don't use tensorflows encoding due to evaluation in session runs
 		if one_hot:
-			#y_test = tf.one_hot(y_test, len(globals.DATASET_LABELS))
-			#y_train = tf.one_hot(y_train, len(globals.DATASET_LABELS))
 			y_test = np.eye(len(globals.DATASET_LABELS))[y_test]
 			y_train = np.eye(len(globals.DATASET_LABELS))[y_train]
 		x_train = x_train.reshape([-1, globals.IMAGE_SIZE, globals.IMAGE_SIZE, 1])
@@ -72,9 +70,6 @@ class Data(object):
 		y_train = y_train[0::n_views]
 		y_test = y_test[0::n_views]
 		return x_train, y_train, x_test, y_test
-
-
-
 
 	"""Shuffles given lists in same order
 

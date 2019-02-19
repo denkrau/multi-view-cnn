@@ -5,16 +5,25 @@ import globals
 class Grouping(object):
 	
 	def get_group_weights(self, view_scores):
+		"""Divides views depending on their view discrimination score into groups
+	    and calculates their weights. This is called for every batch element.
+
+	    Args:
+	    	view_scores: discrimination score of each view; [n_views]
+
+	    Returns:
+	    	group_idx: index represents view id and value group id
+	    	group_weights: normed weights of each group id
+		"""
 		#group range and amount of views in each group
-		group_size = tf.cast(tf.divide(tf.constant(1), view_scores.shape), tf.float32)
-		groups = tf.histogram_fixed_width(view_scores, [0,1], tf.constant(6))
+		group_size = tf.divide(1.0, globals.N_VIEWS)
 
 		#contains group id of each view. index of tensor corresponds to view id
-		group_idx = tf.cast(tf.divide(view_scores, group_size), tf.int32)
+		group_idx = tf.cast(tf.floordiv(view_scores, group_size), tf.int32)
 		group_weights = []
 
 		#create a mask for each group for weight calculation
-		for i in range(0, globals.N_VIEWS):
+		for i in range(globals.N_VIEWS):
 			#create boolean mask for current group id
 			mask = tf.fill([globals.N_VIEWS], i)
 			mask = tf.equal(group_idx, mask)
@@ -36,7 +45,7 @@ class Grouping(object):
 		group_idx, view_descriptors = group_idx_and_view_descriptors
 		group_descriptors = []
 		#create mask for each group and calculate mean of it's view descriptors
-		for i in range(0, globals.N_VIEWS):
+		for i in range(globals.N_VIEWS):
 			#create mask for current group
 			mask = tf.fill([globals.N_VIEWS], i)
 			mask = tf.equal(group_idx, mask)
@@ -44,7 +53,7 @@ class Grouping(object):
 			#calculate mean of view descriptors for current group
 			descriptor_mean = tf.reduce_mean(tf.boolean_mask(view_descriptors, mask), axis=0)
 			descriptor_mean = tf.where(tf.is_nan(descriptor_mean), tf.zeros_like(descriptor_mean), descriptor_mean)
-
+			
 			group_descriptors.append(descriptor_mean)
 
 		return tf.convert_to_tensor(group_descriptors)
