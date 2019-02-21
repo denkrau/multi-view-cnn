@@ -189,6 +189,10 @@ class Model(object):
 				x_train, y_train = self.data.shuffle(x_train, y_train)
 				x_test, y_test = self.data.shuffle(x_test, y_test)
 				
+				if lr_find is None:
+					#reset lists due to performance reasons
+					train_loss = []
+					learning_rates = []
 				test_loss = []
 				train_accuracy = []
 				test_accuracy = []
@@ -260,44 +264,50 @@ class Model(object):
 
 		return train_loss, learning_rates, train_accuracy, test_accuracy
 
-	def predict(self, img, y=None, n_views=globals.N_VIEWS, ckpt_file=None, saliency=None):
-		if ckpt_file is None:
-			ckpt_file = os.path.join(globals.CKPT_PATH, globals.CKPT_FILE)
-		saver = tf.train.Saver()
+	def predict(self, img, y=None, n_views=globals.N_VIEWS, ckpt_file=None):
 		weights, biases = self.get_weights()
+		is_multi_view = None
+		saliency = None
+		groups = None
+		
 		#if multi view object is given
-		if img.shape[-1] > 1:
-			x = tf.placeholder("float", [None, globals.IMAGE_SIZE, globals.IMAGE_SIZE, n_views], name="x")
-			view_discrimination_scores = []
-			view_descriptors = []
-			# feed each channel of input in first part of cnn (conv layers) to get view descriptors
-			for i in tf.split(x, num_or_size_splits=globals.N_VIEWS, axis=3):
-				view_descriptor = self.cnn_convs(i, weights, biases)
-				view_descriptors.append(view_descriptor)
-				view_discrimination_score = self.cnn_grouping(view_descriptor, weights, biases)
-				view_discrimination_scores.append(view_discrimination_score)
+		if img.shape[1] == n_views:
+			is_multi_view = True
+			x = tf.placeholder(tf.float32, [None, n_views, globals.IMAGE_SIZE, globals.IMAGE_SIZE, 1], name="x")
 
-			# get view-to-group mapping and weight of each group
-			group_idx, avg_group_weights_norm = self.grouping.get_group_weights(view_discrimination_scores)
+			with tf.name_scope("view_descriptors_and_scores"):
+				view_descriptors, view_discrimination_scores = tf.map_fn(self.get_view_descriptors_and_scores, x, dtype=(tf.float32, tf.float32))
+				view_discrimination_scores = tf.reshape(view_discrimination_scores, [-1, globals.N_VIEWS])
 
-			# continue feeding the rest of the network where grouping and pooling happens
-			pred = cnn_fcs_grouping(view_descriptors, weights, biases, group_idx, avg_group_weights_norm)
+			with tf.name_scope("group_weights"):
+				batch_group_idx, batch_group_weights = tf.map_fn(self.grouping.get_group_weights, view_discrimination_scores, dtype=(tf.int32, tf.float32))
+
+			with tf.name_scope("grouping"):
+				batch_group_descriptors = tf.map_fn(self.grouping.get_group_descriptors, [batch_group_idx, view_descriptors], dtype=tf.float32)
+				pred = self.cnn_fcs_grouping(batch_group_descriptors, batch_group_weights, weights, biases)
+				pred = tf.nn.softmax(pred)
 		else:
+			is_multi_view = False
 			# feed input to connected cnn
 			x = tf.placeholder("float", [None, globals.IMAGE_SIZE, globals.IMAGE_SIZE, 1], name="x")
 			pred = self.cnn_convs(x, weights, biases)
 			pred = self.cnn_fcs(pred, weights, biases)
 			pred = tf.nn.softmax(pred)
-		if saliency:
-			saliency_map = tf.gradients(pred, x)
+			saliency = tf.gradients(pred, x)
+
+		saver = tf.train.Saver()
+		if ckpt_file is None:
+			ckpt_file = os.path.join(globals.CKPT_PATH, globals.CKPT_FILE)
+
 		with tf.Session() as sess:
 			saver.restore(sess, ckpt_file)
-			if saliency is None:
-				classification = sess.run(pred, feed_dict={x: img})
+			classification = sess.run(pred, feed_dict={x: img})
+			if is_multi_view:
+				groups = sess.run(batch_group_idx, feed_dict={x: img})
 			else:
-				classification, saliency = sess.run([pred, saliency_map], feed_dict={x: img})
-			
-		return classification, saliency
+				saliency = sess.run(saliency, feed_dict={x: img})
+
+		return classification, saliency, groups
 
 	def get_weights(self):
 		with tf.variable_scope("cnn", reuse=tf.AUTO_REUSE):
