@@ -125,7 +125,7 @@ class Model(object):
 			fc1 = tf.sigmoid(tf.log(tf.abs(fc1)+tf.constant(0.000001)), name="view_discr_score")
 		return fc1
 
-	def train(self, x, y, dataset, weights, biases, ckpt=None):
+	def train(self, x, y, dataset, weights, biases, ckpt=None, find_lr=None):
 		"""Trains the network with given training and testing images and labels
 
 		Args:
@@ -165,7 +165,8 @@ class Model(object):
 			pred = self.cnn_convs(x, weights, biases)
 			pred = self.cnn_fcs(pred, weights, biases)
 		cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=pred, labels=y))
-		optimizer = tf.train.AdamOptimizer(learning_rate=globals.LEARNING_RATE).minimize(cost)
+		learning_rate = tf.placeholder(tf.float32, ())
+		optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost)
 		correct_prediction = tf.equal(tf.argmax(pred, 1), tf.argmax(y, 1))
 		accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 		init = tf.global_variables_initializer()
@@ -173,17 +174,21 @@ class Model(object):
 		if globals.USE_SUMMARY:
 			merged = tf.summary.merge_all()
 		with tf.Session() as sess:
+			lr = self.get_learning_rate(find_lr)
 			if ckpt is None:
 				sess.run(init)
 			else:
 				saver.restore(sess, ckpt)
 			if globals.USE_SUMMARY:
 				summary_writer = tf.summary.FileWriter(globals.SUMMARY_PATH, sess.graph)
-			for i in range(globals.TRAINING_ITERS):
+
+			train_loss = []
+			learning_rates = []
+
+			for i in range(globals.TRAINING_EPOCHS):
 				x_train, y_train = self.data.shuffle(x_train, y_train)
 				x_test, y_test = self.data.shuffle(x_test, y_test)
 				
-				train_loss = []
 				test_loss = []
 				train_accuracy = []
 				test_accuracy = []
@@ -192,48 +197,59 @@ class Model(object):
 					print("Iter", i, "Batch", batch, "of", len(x_train)//batch_size, end="\r")
 					batch_x = x_train[batch*batch_size:min((batch+1)*batch_size,len(x_train))]
 					batch_y = y_train[batch*batch_size:min((batch+1)*batch_size,len(y_train))]
+					learning_rates.append(lr)
 					# Run optimization op (backprop).
 					    # Calculate batch loss and accuracy
 
 					if is_multi_view:
 						if globals.USE_SUMMARY:
-							summary, opt, scores, descr = sess.run([merged, optimizer, view_discrimination_scores, view_descriptors], feed_dict={x: batch_x, y: batch_y})
+							summary, opt, scores, descr = sess.run([merged, optimizer, view_discrimination_scores, view_descriptors], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
 						else:
-							opt = sess.run([optimizer], feed_dict={x: batch_x, y: batch_y})
+							opt = sess.run([optimizer], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
 						#print(scores)
 						#print(descr[0,0,0,3,3,:15])
 						#print(descr[0,1,0,3,3,:15])
-						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y})
+						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
 						if globals.USE_SUMMARY:
 							summary_writer.add_summary(summary)
 
 					else:
-						opt = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y})
-						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y})
+						opt = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
+						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
+
+					train_loss.append(loss)
+
+					#finding learning rate is active, therefore break if latest loss is much larger than loss before
+					if find_lr is not None and i > 0:
+						if train_loss[-1] > 4 * train_loss[-2]:
+							return train_loss, learning_rates, train_accuracy, test_accuracy
+
+					lr = self.update_learning_rate(lr, find_lr)
 				print("Iter " + str(i) + ", Loss= " + \
-				          "{:.6f}".format(loss) + ", Training Accuracy= " + \
+				          "{:.6f}".format(train_loss[-1]) + ", Training Accuracy= " + \
 				          "{:.5f}".format(acc))
 				#print("Optimization Finished!")
 
 				# Calculate accuracy for all images
 				#divide in batches and calculate mean to prevent OOM error
-				test_batch_accuracy = []
-				test_batch_valid_loss = []
-				for test_batch in range(len(x_test)//batch_size):
-					batch_x_test = x_test[test_batch*batch_size:min((test_batch+1)*batch_size, len(x_test))]
-					batch_y_test = y_test[test_batch*batch_size:min((test_batch+1)*batch_size, len(y_test))]
-					if is_multi_view:
-						test_acc, valid_loss = sess.run([accuracy,cost], feed_dict={x: batch_x_test, y : batch_y_test})
-					else:
-						test_acc, valid_loss = sess.run([accuracy,cost], feed_dict={x: batch_x_test, y : batch_y_test})
-					test_batch_accuracy.append(test_acc)
-					test_batch_valid_loss.append(valid_loss)
+				if find_lr is None:
+					test_batch_accuracy = []
+					test_batch_valid_loss = []
+					for test_batch in range(len(x_test)//batch_size):
+						batch_x_test = x_test[test_batch*batch_size:min((test_batch+1)*batch_size, len(x_test))]
+						batch_y_test = y_test[test_batch*batch_size:min((test_batch+1)*batch_size, len(y_test))]
+						if is_multi_view:
+							test_acc, valid_loss = sess.run([accuracy,cost], feed_dict={x: batch_x_test, y : batch_y_test})
+						else:
+							test_acc, valid_loss = sess.run([accuracy,cost], feed_dict={x: batch_x_test, y : batch_y_test})
+						test_batch_accuracy.append(test_acc)
+						test_batch_valid_loss.append(valid_loss)
+					print("Testing Accuracy:","{:.5f}".format(test_acc))
 
-				train_loss.append(loss)
-				test_loss.append(np.mean(test_batch_valid_loss))
+					test_loss.append(np.mean(test_batch_valid_loss))
+					test_accuracy.append(np.mean(test_batch_accuracy))
+
 				train_accuracy.append(acc)
-				test_accuracy.append(np.mean(test_batch_accuracy))
-				print("Testing Accuracy:","{:.5f}".format(test_acc))
 			try:
 				saver.save(sess, os.path.join(globals.CKPT_PATH, globals.CKPT_FILE))
 			except Exception as e:
@@ -242,7 +258,9 @@ class Model(object):
 			if globals.USE_SUMMARY:
 				summary_writer.close()
 
-	def predict(self, img, y=None, n_views=globals.N_VIEWS, ckpt_file=None):
+		return train_loss, learning_rates, train_accuracy, test_accuracy
+
+	def predict(self, img, y=None, n_views=globals.N_VIEWS, ckpt_file=None, saliency=None):
 		if ckpt_file is None:
 			ckpt_file = os.path.join(globals.CKPT_PATH, globals.CKPT_FILE)
 		saver = tf.train.Saver()
@@ -270,11 +288,16 @@ class Model(object):
 			pred = self.cnn_convs(x, weights, biases)
 			pred = self.cnn_fcs(pred, weights, biases)
 			pred = tf.nn.softmax(pred)
+		if saliency:
+			saliency_map = tf.gradients(pred, x)
 		with tf.Session() as sess:
 			saver.restore(sess, ckpt_file)
-			classification = sess.run(pred, feed_dict={x: img})
+			if saliency is None:
+				classification = sess.run(pred, feed_dict={x: img})
+			else:
+				classification, saliency = sess.run([pred, saliency_map], feed_dict={x: img})
 			
-		return classification
+		return classification, saliency
 
 	def get_weights(self):
 		with tf.variable_scope("cnn", reuse=tf.AUTO_REUSE):
@@ -361,6 +384,38 @@ class Model(object):
 			shape_descriptors.append(fc2)
 
 		return tf.convert_to_tensor(shape_descriptors)
+
+	def get_learning_rate(self, find_lr=None):
+		learning_rate = None
+		if find_lr is None:
+			if globals.LEARNING_RATE_TYPE == 0:
+				learning_rate = globals.LEARNING_RATE
+			elif globals.LEARNING_RATE_TYPE == 1:
+				pass
+			elif globals.LEARNING_RATE_TYPE == 2:
+				pass
+			elif globals.LEARNING_RATE_TYPE == 3:
+				pass
+		else:
+			learning_rate = globals.FIND_LEARNING_RATE_MIN
+
+		return learning_rate
+
+	def update_learning_rate(self, current_lr, find_lr=None):
+		learning_rate = current_lr
+		if find_lr is None:
+			if globals.LEARNING_RATE_TYPE == 0:
+				pass
+			elif globals.LEARNING_RATE_TYPE == 1:
+				pass
+			elif globals.LEARNING_RATE_TYPE == 2:
+				pass
+			elif globals.LEARNING_RATE_TYPE == 3:
+				pass
+		else:
+			learning_rate = current_lr * globals.FIND_LEARNING_RATE_GROWTH
+
+		return learning_rate
 
 	# Wrapper functions for layer operations
 

@@ -3,17 +3,21 @@ Store global variables
 """
 
 # Datasets
-DATASET_PATH = "D:\\Dropbox\\Studium\\Master\\Masterthesis\\Code\\datasets\\modelnet8views"
+DATASET_PATH = ".\\datasets\\modelnet8views"
 DATASET_LABELS = ["airplane", "bathtub", "bed", "bench", "bookshelf",
                   "bottle", "bowl", "car"]
 IMAGE_SIZE = 224
 
 # Model
+#LEARNING_RATE_TYPES = ["Fixed", "exp", "cyclic", "cos_cyclic"]
+LEARNING_RATE_TYPE = 0
 LEARNING_RATE = 0.001
+FIND_LEARNING_RATE_MIN = 0.00001
+FIND_LEARNING_RATE_GROWTH = 1.1
 N_INPUT = IMAGE_SIZE
 N_CLASSES = len(DATASET_LABELS)
 N_VIEWS = 12
-TRAINING_ITERS = 20
+TRAINING_EPOCHS = 2
 BATCH_SIZE_SINGLE = 128
 BATCH_SIZE_MULTI = 8
 CKPT_PATH = ".\\checkpoints"

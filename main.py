@@ -43,16 +43,16 @@ if __name__ == "__main__":
 
 	if arg_train == "single":
 		#create placeholders for input and output data
-		x = tf.placeholder("float", [None, globals.IMAGE_SIZE, globals.IMAGE_SIZE, 1], name="x")
-		y = tf.placeholder("float", [None, globals.N_CLASSES], name="y")
+		x = tf.placeholder(tf.float32, (None, globals.IMAGE_SIZE, globals.IMAGE_SIZE, 1), name="x")
+		y = tf.placeholder(tf.float32, (None, globals.N_CLASSES), name="y")
 
 		#rough training of model: only one image
 		model.train(x, y, deepcopy(dataset), weights, biases, arg_ckpt)
 
 	elif arg_train == "multi":
 		#group module training with multiview input
-		x_mv = tf.placeholder("float", [None, globals.N_VIEWS, globals.IMAGE_SIZE, globals.IMAGE_SIZE, 1], name="x_mv")
-		y = tf.placeholder("float", [None, globals.N_CLASSES], name="y")
+		x_mv = tf.placeholder(tf.float32, (None, globals.N_VIEWS, globals.IMAGE_SIZE, globals.IMAGE_SIZE, 1), name="x_mv")
+		y = tf.placeholder(tf.float32, (None, globals.N_CLASSES), name="y")
 
 		#multi_view_dataset = copy.deepcopy(set)
 		multi_view_dataset = data.single_to_multi_view(*dataset, globals.N_VIEWS)
