@@ -165,7 +165,8 @@ class Model(object):
 			pred = self.cnn_convs(x, weights, biases)
 			pred = self.cnn_fcs(pred, weights, biases)
 		cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=pred, labels=y))
-		learning_rate = tf.placeholder(tf.float32, ())
+		#learning_rate = tf.placeholder(tf.float32, ())
+		learning_rate = globals.LEARNING_RATE
 		optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost)
 		correct_prediction = tf.equal(tf.argmax(pred, 1), tf.argmax(y, 1))
 		accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
@@ -173,8 +174,10 @@ class Model(object):
 		saver = tf.train.Saver()
 		if globals.USE_SUMMARY:
 			merged = tf.summary.merge_all()
+		#config = tf.ConfigProto()
+		#config.gpu_options.allow_growth = True
 		with tf.Session() as sess:
-			lr = self.get_learning_rate(find_lr)
+			#lr = self.get_learning_rate(find_lr)
 			if ckpt is None:
 				sess.run(init)
 			else:
@@ -189,7 +192,7 @@ class Model(object):
 				x_train, y_train = self.data.shuffle(x_train, y_train)
 				x_test, y_test = self.data.shuffle(x_test, y_test)
 				
-				if lr_find is None:
+				if find_lr is None:
 					#reset lists due to performance reasons
 					train_loss = []
 					learning_rates = []
@@ -201,25 +204,28 @@ class Model(object):
 					print("Iter", i, "Batch", batch, "of", len(x_train)//batch_size, end="\r")
 					batch_x = x_train[batch*batch_size:min((batch+1)*batch_size,len(x_train))]
 					batch_y = y_train[batch*batch_size:min((batch+1)*batch_size,len(y_train))]
-					learning_rates.append(lr)
+					#learning_rates.append(lr)
 					# Run optimization op (backprop).
 					    # Calculate batch loss and accuracy
 
 					if is_multi_view:
 						if globals.USE_SUMMARY:
-							summary, opt, scores, descr = sess.run([merged, optimizer, view_discrimination_scores, view_descriptors], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
+							#summary, opt, scores, descr = sess.run([merged, optimizer, view_discrimination_scores, view_descriptors], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
+							summary, opt, scores, descr = sess.run([merged, optimizer, view_discrimination_scores, view_descriptors], feed_dict={x: batch_x, y: batch_y})
 						else:
-							opt = sess.run([optimizer], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
-						#print(scores)
-						#print(descr[0,0,0,3,3,:15])
-						#print(descr[0,1,0,3,3,:15])
-						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
+							#opt = sess.run([optimizer], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
+							opt = sess.run([optimizer], feed_dict={x: batch_x, y: batch_y})
+
+						#loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
+						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y})
 						if globals.USE_SUMMARY:
 							summary_writer.add_summary(summary)
 
 					else:
-						opt = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
-						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
+						#opt = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
+						opt = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y})
+						#loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
+						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y})
 
 					train_loss.append(loss)
 
@@ -228,7 +234,7 @@ class Model(object):
 						if train_loss[-1] > 4 * train_loss[-2]:
 							return train_loss, learning_rates, train_accuracy, test_accuracy
 
-					lr = self.update_learning_rate(lr, find_lr)
+					#lr = self.update_learning_rate(lr, find_lr)
 				print("Iter " + str(i) + ", Loss= " + \
 				          "{:.6f}".format(train_loss[-1]) + ", Training Accuracy= " + \
 				          "{:.5f}".format(acc))
@@ -248,10 +254,11 @@ class Model(object):
 							test_acc, valid_loss = sess.run([accuracy,cost], feed_dict={x: batch_x_test, y : batch_y_test})
 						test_batch_accuracy.append(test_acc)
 						test_batch_valid_loss.append(valid_loss)
-					print("Testing Accuracy:","{:.5f}".format(test_acc))
 
 					test_loss.append(np.mean(test_batch_valid_loss))
 					test_accuracy.append(np.mean(test_batch_accuracy))
+
+					print("Testing Accuracy:","{:.5f}".format(test_accuracy[-1]))
 
 				train_accuracy.append(acc)
 			try:
@@ -398,14 +405,7 @@ class Model(object):
 	def get_learning_rate(self, find_lr=None):
 		learning_rate = None
 		if find_lr is None:
-			if globals.LEARNING_RATE_TYPE == 0:
-				learning_rate = globals.LEARNING_RATE
-			elif globals.LEARNING_RATE_TYPE == 1:
-				pass
-			elif globals.LEARNING_RATE_TYPE == 2:
-				pass
-			elif globals.LEARNING_RATE_TYPE == 3:
-				pass
+			learning_rate = globals.LEARNING_RATE
 		else:
 			learning_rate = globals.FIND_LEARNING_RATE_MIN
 
