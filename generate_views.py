@@ -4,6 +4,7 @@ Run inside Blender Python Console with
 
 file = "D:\\Dropbox\\Studium\\Master\\Masterthesis\\Code\\generate_views.py"
 exec(compile(open(file).read(), "file", 'exec'))
+
 """
 
 import os
@@ -42,17 +43,78 @@ def register_object_materials(obj, mats):
 	for i in mats:
 		obj.data.materials.append(i)
 
-def color_faces(obj, faces, area_mean, mat_id):
-	"""Applies material of scene to faces of given object.
-	
-	Args:
-		obj: Mesh object
-		mat_id: Id of material to be applied
+def get_optimal_face(cam, obj):
+	"""Iterates over all mesh faces to find one that has a decent size and is seen by the camera
+
+		Args:
+			scene: blender scene object
+			cam: camera object
+			obj: mesh object
+
+		Returns:
+			face: optimal face object
 	"""
-	for f in faces:
-		if f.area > area_mean:
-			f.material_index = mat_id
-			break
+	success = False
+	idx = 0
+	#get mean over all faces
+	faces = obj.data.polygons
+	faces_area_mean = np.mean([i.area for i in faces])
+	face = None
+	while not success:
+		#get first face which area is larger than mean
+		for i, f in enumerate(faces[idx:]):
+			if f.area > faces_area_mean:
+				if not (abs(f.normal[0]) == 0.0 and abs(f.normal[1]) == 0.0):
+					face = f
+					idx = i+1
+					break
+
+		#get coordinates of face vertices
+		vertices_mesh = obj.data.vertices
+		v1 = vertices_mesh[face.vertices[0]].co + 0.05*(face.center - vertices_mesh[face.vertices[0]].co)
+		v2 = vertices_mesh[face.vertices[1]].co + 0.05*(face.center - vertices_mesh[face.vertices[1]].co)
+		v3 = vertices_mesh[face.vertices[2]].co + 0.05*(face.center - vertices_mesh[face.vertices[2]].co)
+		face_coords = [v1, v2, v3]
+
+		"""
+		#check if face vertices are inside camera view
+		for c in face_coords:
+			proj = bpy_extras.object_utils.world_to_camera_view(scene, cam, obj.matrix_world * v)
+			if 0.0 > proj[0] > 1.0 or 0.0 > proj[1] > 1.0 or proj[2] > 0.0:
+				return false
+		"""
+
+		#check by ray cast if face vertices are seen by camera
+		#if true a visible face is supposed
+		#this is done for every view
+		cam.location = (0, 0, 0)
+		cam.rotation_euler[0] = 60*3.141/180
+		is_hidden = False
+		is_visible = False	
+		for i in range(n_views):
+			cam.rotation_euler[2] = i*camera_steps*3.141/180
+			bpy.ops.view3d.camera_to_view_selected()
+			#apply padding to render by moving camera away along its z-axis
+			cam.location = cam.matrix_local * Vector((0,0,6))
+			number_of_vertex_misses = 0
+			for c in face_coords:
+				#result = [is_hit, hit_location, face_normal, face_id]
+				result = obj.ray_cast(obj.matrix_world.inverted()*cam.location, c-obj.matrix_world.inverted()*cam.location)
+				if result[0]:
+					if faces[result[3]] == face:
+						#face is visible so interrupt further checking
+						is_visible = True
+						break
+				#if face is not visible increment counter
+				number_of_vertex_misses += 1
+			#if whole face is not vissible in current view increment counter
+			if number_of_vertex_misses == len(face_coords):
+				is_hidden = True
+			#if face was at least once seen and at least once hidden in different views return face
+			if is_visible and is_hidden:
+				return face
+
+	return face
 
 # define views and camera position
 n_views = 12
@@ -71,14 +133,18 @@ if "Cube" in bpy.data.objects:
 	bpy.data.objects["Cube"].select = True
 	bpy.ops.object.delete()
 
+#get context objects
+cam = bpy.data.objects["Camera"]
+scene = bpy.data.scenes["Scene"]
+
 #modify environment
 bpy.context.scene.render.resolution_x = 224
 bpy.context.scene.render.resolution_y = 224
-bpy.data.scenes['Scene'].render.resolution_percentage = 100
-bpy.data.scenes['Scene'].render.antialiasing_samples = "16"
-bpy.data.scenes['Scene'].render.use_full_sample = True
+scene.render.resolution_percentage = 100
+scene.render.antialiasing_samples = "16"
+scene.render.use_full_sample = True
 bpy.data.cameras["Camera"].clip_end = 9999.9
-bpy.data.objects["Camera"].lock_rotation[0] = True
+cam.lock_rotation[0] = True
 bpy.data.lamps["Lamp"].type = "HEMI"
 bpy.data.objects['Lamp'].location = (0, 0, 90)
 bpy.data.objects['Lamp'].rotation_euler = (0, 0, 0)
@@ -100,9 +166,10 @@ for root, dirs, files in os.walk(input):
 			faces = obj.data.polygons
 			faces_area_mean = np.mean([i.area for i in faces])
 			register_object_materials(obj, mats)
+			face = get_optimal_face(cam, obj)
 			for j in range(len(materials)+1):
 				if j > 0:
-					color_faces(obj, faces, faces_area_mean, j)
+					face.material_index = j
 				# position camera for first view
 				bpy.data.objects["Camera"].location = (0, 0, 0)
 				bpy.data.objects["Camera"].rotation_euler[0] = 60*3.141/180
