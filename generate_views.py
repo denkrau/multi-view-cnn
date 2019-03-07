@@ -23,7 +23,6 @@ def register_materials(materials):
 	for k, v in materials.items():
 		mat = bpy.data.materials.new(k)
 		mat.diffuse_color = v
-		mat.transparency_method = "Z_TRANSPARENCY"
 		mats.append(mat)
 	return mats
 
@@ -54,35 +53,26 @@ def get_optimal_face(cam, obj):
 		Returns:
 			face: optimal face object
 	"""
-	success = False
 	idx = 0
 	#get mean over all faces
 	faces = obj.data.polygons
 	faces_area_mean = np.mean([i.area for i in faces])
-	face = None
-	while not success:
-		#get first face which area is larger than mean
+	
+	run = 0
+	while run < len(faces):
+		#get first face whose area is larger than mean
 		for i, f in enumerate(faces[idx:]):
 			if f.area > faces_area_mean:
-				if not (abs(f.normal[0]) == 0.0 and abs(f.normal[1]) == 0.0):
-					face = f
-					idx = i+1
-					break
-
-		#get coordinates of face vertices
+				face = f
+				idx += i+1
+				break
+		
+		#get coordinates of face vertices and move them slighty in direction of face center for unique vertex distinction
 		vertices_mesh = obj.data.vertices
 		v1 = vertices_mesh[face.vertices[0]].co + 0.05*(face.center - vertices_mesh[face.vertices[0]].co)
 		v2 = vertices_mesh[face.vertices[1]].co + 0.05*(face.center - vertices_mesh[face.vertices[1]].co)
 		v3 = vertices_mesh[face.vertices[2]].co + 0.05*(face.center - vertices_mesh[face.vertices[2]].co)
 		face_coords = [v1, v2, v3]
-
-		"""
-		#check if face vertices are inside camera view
-		for c in face_coords:
-			proj = bpy_extras.object_utils.world_to_camera_view(scene, cam, obj.matrix_world * v)
-			if 0.0 > proj[0] > 1.0 or 0.0 > proj[1] > 1.0 or proj[2] > 0.0:
-				return false
-		"""
 
 		#check by ray cast if face vertices are seen by camera
 		#if true a visible face is supposed
@@ -90,12 +80,12 @@ def get_optimal_face(cam, obj):
 		cam.location = (0, 0, 0)
 		cam.rotation_euler[0] = 60*3.141/180
 		is_hidden = False
-		is_visible = False	
+		is_visible = False
 		for i in range(n_views):
 			cam.rotation_euler[2] = i*camera_steps*3.141/180
 			bpy.ops.view3d.camera_to_view_selected()
 			#apply padding to render by moving camera away along its z-axis
-			cam.location = cam.matrix_local * Vector((0,0,6))
+			cam.location = cam.matrix_world * Vector((0,0,6))
 			number_of_vertex_misses = 0
 			for c in face_coords:
 				#result = [is_hit, hit_location, face_normal, face_id]
@@ -113,8 +103,8 @@ def get_optimal_face(cam, obj):
 			#if face was at least once seen and at least once hidden in different views return face
 			if is_visible and is_hidden:
 				return face
-
-	return face
+		run += 1
+	return None
 
 # define views and camera position
 n_views = 12
@@ -153,33 +143,31 @@ mats = register_materials(materials)
 
 #import mesh and render it
 for root, dirs, files in os.walk(input):
-	amount = len(files)
 	for i, file in enumerate(sorted(files)):
-		if file.endswith(".off"):
-			print("Processing file", i, "of", amount, end="\r")
+		if os.path.splitext(file)[1] == ".off":
 			path, type = os.path.split(root)
 			category = os.path.split(path)[1]
 			filename, ext = os.path.splitext(file)
 			bpy.ops.import_mesh.off(filepath=os.path.join(root, file))
 			bpy.ops.object.origin_set(type="ORIGIN_CENTER_OF_MASS")
 			obj = bpy.data.objects[os.path.splitext(file)[0]]
-			faces = obj.data.polygons
-			faces_area_mean = np.mean([i.area for i in faces])
 			register_object_materials(obj, mats)
 			face = get_optimal_face(cam, obj)
-			for j in range(len(materials)+1):
-				if j > 0:
-					face.material_index = j
-				# position camera for first view
-				bpy.data.objects["Camera"].location = (0, 0, 0)
-				bpy.data.objects["Camera"].rotation_euler[0] = 60*3.141/180
-				for k in range(n_views):
-					bpy.data.objects["Camera"].rotation_euler[2] = k*camera_steps*3.141/180
-					bpy.ops.view3d.camera_to_view_selected()
-					#apply padding to render by moving camera away along its z-axis
-					bpy.data.objects["Camera"].location = bpy.data.objects["Camera"].matrix_local * Vector((0,0,6))
-					bpy.context.scene.render.filepath = os.path.join(output, category, type, filename + "_" + str(j) + "_" + str(k).zfill(3) + ".png")
-					bpy.ops.render.render(write_still=True)
+			if face is not None:
+				for j in range(len(materials)+1):
+					if j > 0:
+						face.material_index = j
+					# position camera for first view
+					bpy.data.objects["Camera"].location = (0, 0, 0)
+					bpy.data.objects["Camera"].rotation_euler[0] = 60*3.141/180
+					for k in range(n_views):
+						bpy.data.objects["Camera"].rotation_euler[2] = k*camera_steps*3.141/180
+						bpy.ops.view3d.camera_to_view_selected()
+						#apply padding to render by moving camera away along its z-axis
+						bpy.data.objects["Camera"].location = bpy.data.objects["Camera"].matrix_local * Vector((0,0,6))
+						bpy.context.scene.render.filepath = os.path.join(output, category, type, filename + "_" + str(j) + "_" + str(k).zfill(3) + ".png")
+						bpy.ops.render.render(write_still=True)
+						
 			# delete current mesh
 			bpy.ops.object.select_all(action='DESELECT')
 			obj.select = True
