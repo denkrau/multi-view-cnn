@@ -5,6 +5,7 @@ import numpy as np
 import cv2
 import tensorflow as tf
 import model
+import data
 import globals
 
 if __name__ == "__main__":
@@ -34,6 +35,7 @@ if __name__ == "__main__":
 
 	#initialize objects for further use
 	model = model.Model()
+	data = data.Data()
 
 	if arg_multi is None:
 		img = cv2.imread(values[0], 0)
@@ -48,12 +50,13 @@ if __name__ == "__main__":
 		name = name.split("_")
 		images = []
 		for i in range(arg_views):
-			path = os.path.join(head, "_".join([*name[:-1], str(i+1).zfill(3)])) + ext
+			path = os.path.join(head, "_".join([*name[:-1], str(i).zfill(3)])) + ext
 			img = cv2.imread(path, 0)
 			images.append(img)
 		img = np.reshape(images, [-1, arg_views, globals.IMAGE_SIZE, globals.IMAGE_SIZE, 1])
 
 	classifications, saliency, groups = model.predict(img)
+	labels = data.load_labels()
 	for i in classifications:
-		i = sorted(zip(globals.DATASET_LABELS, i), key=lambda x: x[1], reverse=True)
+		i = sorted(zip(labels, i), key=lambda x: x[1], reverse=True)
 		print(*i, sep="\n")

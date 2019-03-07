@@ -164,7 +164,9 @@ class Model(object):
 			# feed input to connected cnn
 			pred = self.cnn_convs(x, weights, biases)
 			pred = self.cnn_fcs(pred, weights, biases)
-		cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=pred, labels=y))
+		#sigmoid for multi-class, softmax for binary classification
+		#cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=pred, labels=y))
+		cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=pred, labels=y))
 		#learning_rate = tf.placeholder(tf.float32, ())
 		learning_rate = globals.LEARNING_RATE
 		optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost)
@@ -292,7 +294,7 @@ class Model(object):
 			with tf.name_scope("grouping"):
 				batch_group_descriptors = tf.map_fn(self.grouping.get_group_descriptors, [batch_group_idx, view_descriptors], dtype=tf.float32)
 				pred = self.cnn_fcs_grouping(batch_group_descriptors, batch_group_weights, weights, biases)
-				pred = tf.nn.softmax(pred)
+				pred = tf.nn.sigmoid(pred)
 		else:
 			is_multi_view = False
 			# feed input to connected cnn

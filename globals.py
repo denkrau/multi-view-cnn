@@ -1,28 +1,33 @@
 """
-Store global variables
+Stores global variables
 """
 
 # Datasets
-DATASET_PATH = ".\\datasets\\modelnet8views"
-DATASET_LABELS = ["airplane", "bathtub", "bed", "bench", "bookshelf",
-                  "bottle", "bowl", "car"]
+DATASET_PATH = ".\\datasets\\modelnet3views"
+DATASET_FORMATS = [".jpg", ".jpeg", ".png"]
+DATASET_NUMBER_CATEGORIES = 3
+DATASET_NUMBER_MATERIALS = 2
+DATASET_LABELS_FILE = ".\\labels.txt"
 IMAGE_SIZE = 224
+IMAGE_CHANNELS = 1
 
 # Model
 #LEARNING_RATE_TYPES = ["Fixed", "exp", "cyclic", "cos_cyclic"]
 LEARNING_RATE_TYPE = 0
 LEARNING_RATE = 0.0001
-FIND_LEARNING_RATE_MIN = 0.00001
-FIND_LEARNING_RATE_GROWTH = 1.1
 N_INPUT = IMAGE_SIZE
-N_CLASSES = len(DATASET_LABELS)
+N_CLASSES = DATASET_NUMBER_CATEGORIES + DATASET_NUMBER_MATERIALS
 N_VIEWS = 12
-TRAINING_EPOCHS = 10
+TRAINING_EPOCHS = 2
 BATCH_SIZE_SINGLE = 128
 BATCH_SIZE_MULTI = 8
 CKPT_PATH = ".\\checkpoints"
 CKPT_FILE = "model.ckpt"
 CKPT_OVERWRITE = True
+
+#Finding learning rate
+FIND_LEARNING_RATE_MIN = 0.00001
+FIND_LEARNING_RATE_GROWTH = 1.1
 
 # Summary
 USE_SUMMARY = False
