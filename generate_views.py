@@ -57,12 +57,13 @@ def get_optimal_face(cam, obj):
 	#get mean over all faces
 	faces = obj.data.polygons
 	faces_area_mean = np.mean([i.area for i in faces])
-	
+	faces_area_max = np.max([i.area for i in faces])
+
 	run = 0
 	while run < len(faces):
 		#get first face whose area is larger than mean
 		for i, f in enumerate(faces[idx:]):
-			if f.area > faces_area_mean:
+			if f.area > (faces_area_mean + faces_area_max) * 0.3:
 				face = f
 				idx += i+1
 				break
@@ -106,16 +107,46 @@ def get_optimal_face(cam, obj):
 		run += 1
 	return None
 
+def get_identical_faces(face):
+	"""Finds faces with identical vertice coordinates to given face.
+
+	Args:
+		face: face to find identical faces to
+
+	Returns:
+		identical_faces: list of identical face objects
+	"""	
+	identical_faces = [face]
+	vertices = obj.data.vertices
+	faces = obj.data.polygons
+	face_idx = list(faces).index(face)
+	face_coords = []
+	for v in face.vertices:
+		face_coords.append(vertices[v].co)
+	for f in faces[face_idx+1:]:
+		iter_coords = []
+		sum_matches = 0
+		for v in f.vertices:
+			if not vertices[v].co in face_coords:
+				break
+			sum_matches += 1
+		if sum_matches == 3:
+			identical_faces.append(f)
+			
+	return identical_faces
+
 # define views and camera position
 n_views = 12
 camera_steps = 360/n_views
+n_train_objects = 80
+n_test_objects = 20
 
 # define paths
 input = "D:\\Downloads\\Web\\ModelNet10"
-output = "D:\\Downloads\\Web\\ModelNet10views"
+output = "D:\\Downloads\\Web\\ModelNet10viewsDEBUG"
 
 # define each material and color
-materials = {"green": (0,255,0)}
+materials = {"green": (0,255,0), "red": (255,0,0)}
 
 #delete default cube
 if "Cube" in bpy.data.objects:
@@ -143,7 +174,8 @@ mats = register_materials(materials)
 
 #import mesh and render it
 for root, dirs, files in os.walk(input):
-	for i, file in enumerate(sorted(files)):
+	n_objects = 0
+	for file in sorted(files):
 		if os.path.splitext(file)[1] == ".off":
 			path, type = os.path.split(root)
 			category = os.path.split(path)[1]
@@ -154,9 +186,26 @@ for root, dirs, files in os.walk(input):
 			register_object_materials(obj, mats)
 			face = get_optimal_face(cam, obj)
 			if face is not None:
-				for j in range(len(materials)+1):
-					if j > 0:
-						face.material_index = j
+				identical_faces = get_identical_faces(face)
+				n_objects += 1
+				if type == "train":
+					if n_objects > n_train_objects:
+						# delete current mesh
+						bpy.ops.object.select_all(action='DESELECT')
+						obj.select = True
+						bpy.ops.object.delete()
+						break
+				elif type == "test":
+					if n_objects > n_test_objects:
+						# delete current mesh
+						bpy.ops.object.select_all(action='DESELECT')
+						obj.select = True
+						bpy.ops.object.delete()
+						break
+				for j in range(len(materials)):
+					#if j > 0:
+					for face in identical_faces:
+						face.material_index = j+1
 					# position camera for first view
 					bpy.data.objects["Camera"].location = (0, 0, 0)
 					bpy.data.objects["Camera"].rotation_euler[0] = 60*3.141/180
@@ -167,7 +216,7 @@ for root, dirs, files in os.walk(input):
 						bpy.data.objects["Camera"].location = bpy.data.objects["Camera"].matrix_local * Vector((0,0,6))
 						bpy.context.scene.render.filepath = os.path.join(output, category, type, filename + "_" + str(j) + "_" + str(k).zfill(3) + ".png")
 						bpy.ops.render.render(write_still=True)
-						
+			
 			# delete current mesh
 			bpy.ops.object.select_all(action='DESELECT')
 			obj.select = True
