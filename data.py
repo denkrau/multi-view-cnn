@@ -17,18 +17,9 @@ class Data(object):
 		create_labels = False
 		has_materials = True if params.DATASET_NUMBER_MATERIALS > 0 else False
 		has_categories = True if params.DATASET_NUMBER_CATEGORIES > 0 else False
-
-
-		#get number of labels
-		if params.DATASET_IS_SINGLELABEL:
-			sum_labels = params.DATASET_NUMBER_CATEGORIES * params.DATASET_NUMBER_MATERIALS \
-				if has_categories and has_materials \
-				else max(params.DATASET_NUMBER_CATEGORIES, params.DATASET_NUMBER_MATERIALS)
-		else:
-			sum_labels = params.DATASET_NUMBER_CATEGORIES + params.DATASET_NUMBER_MATERIALS
-
+		n_labels = params.get_number_labels()
 		labels = self.load_labels()
-		if labels is not None and len(labels) != sum_labels:
+		if labels is not None and len(labels) != n_labels:
 			labels = None
 
 		#supported filename is
@@ -106,13 +97,13 @@ class Data(object):
 		#don't use tensorflows encoding due to evaluation in session runs
 		if one_hot:
 			if not params.DATASET_IS_SINGLELABEL and has_materials and has_categories:
-				y_test = [np.eye(sum_labels)[i[0]] + np.eye(sum_labels)[i[1]] for i in y_test]
-				y_train = [np.eye(sum_labels)[i[0]] + np.eye(sum_labels)[i[1]] for i in y_train]
+				y_test = [np.eye(n_labels)[i[0]] + np.eye(n_labels)[i[1]] for i in y_test]
+				y_train = [np.eye(n_labels)[i[0]] + np.eye(n_labels)[i[1]] for i in y_train]
 				y_train = np.array(y_train, dtype=np.float32)
 				y_test = np.array(y_test, dtype=np.float32)
 			else:
-				y_test = np.eye(sum_labels, dtype=np.float32)[y_test]
-				y_train = np.eye(sum_labels, dtype=np.float32)[y_train]
+				y_test = np.eye(n_labels, dtype=np.float32)[y_test]
+				y_train = np.eye(n_labels, dtype=np.float32)[y_train]
 
 		x_train = np.reshape(x_train, [-1, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS])
 		x_test = np.reshape(x_test, [-1, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS])
