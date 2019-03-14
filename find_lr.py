@@ -27,9 +27,9 @@ if arg_multi:
 weights, biases = model.get_weights()
 
 if arg_multi:
-	x = tf.placeholder(tf.float32, (None, globals.N_VIEWS, globals.IMAGE_SIZE, globals.IMAGE_SIZE, 1), name="x")
+	x = tf.placeholder(tf.float32, (None, globals.N_VIEWS, globals.IMAGE_SIZE, globals.IMAGE_SIZE, globals.IMAGE_CHANNELS), name="x")
 else:
-	x = tf.placeholder(tf.float32, (None, globals.IMAGE_SIZE, globals.IMAGE_SIZE, 1), name="x")
+	x = tf.placeholder(tf.float32, (None, globals.IMAGE_SIZE, globals.IMAGE_SIZE, globals.IMAGE_CHANNELS), name="x")
 y = tf.placeholder(tf.float32, (None, globals.N_CLASSES), name="y")
 
 iter_loss, learning_rates, _, _ = model.train(x, y, dataset, weights, biases, find_lr=True)

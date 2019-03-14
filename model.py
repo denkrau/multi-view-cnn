@@ -57,12 +57,12 @@ class Model(object):
 			fc1 = tf.reshape(x, [-1, weights['wd1'].get_shape().as_list()[0]])
 			fc1 = tf.add(tf.matmul(fc1, weights['wd1']), biases['bd1'])
 			fc1 = tf.nn.relu(fc1) #(1, 4096)
-			fc1 = tf.nn.dropout(fc1, 0.5)
+			#fc1 = tf.nn.dropout(fc1, 1-dropout_prob)
 		with tf.name_scope("fc2"):
 			fc2 = tf.reshape(fc1, [-1, weights['wd2'].get_shape().as_list()[0]])
 			fc2 = tf.add(tf.matmul(fc2, weights['wd2']), biases['bd2'])
 			fc2 = tf.nn.relu(fc2) #(1, 4096)
-			fc2 = tf.nn.dropout(fc2, 0.5)
+			#fc2 = tf.nn.dropout(fc2, 1-dropout_prob)
 		with tf.name_scope("fc3"):
 			#fc3 = tf.reshape(fc2, [-1, weights['wd3'].get_shape().as_list()[0]])
 			fc3 = tf.add(tf.matmul(fc2, weights['wd3']), biases['bd3']) #(1,n_classes)
@@ -119,7 +119,7 @@ class Model(object):
 		with tf.name_scope("fc4"):
 			fc1 = tf.reshape(x, [-1, weights['wd4'].get_shape().as_list()[0]])
 			fc1 = tf.add(tf.matmul(fc1, weights['wd4']), biases['bd4'])
-			fc1 = tf.nn.relu(fc1)
+			fc1 = tf.nn.leaky_relu(fc1)
 			#fc1 = tf.nn.dropout(fc1, 0.5)
 			#add constant to avoid log(0) and therefore NaNs in cost function
 			fc1 = tf.sigmoid(tf.log(tf.abs(fc1)+tf.constant(0.000001)), name="view_discr_score")
@@ -164,13 +164,19 @@ class Model(object):
 			# feed input to connected cnn
 			pred = self.cnn_convs(x, weights, biases)
 			pred = self.cnn_fcs(pred, weights, biases)
-		#sigmoid for multi-class, softmax for binary classification
-		#cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=pred, labels=y))
-		cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=pred, labels=y))
+		#sigmoid for multi-label, softmax for single-label
+		if (globals.DATASET_NUMBER_CATEGORIES > 0 and globals.DATASET_NUMBER_MATERIALS <= 1) or (globals.DATASET_NUMBER_CATEGORIES == 0 and globals.DATASET_NUMBER_MATERIALS > 1):
+			cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=pred, labels=y))
+		else:
+			cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=pred, labels=y))
+		#cost = tf.reduce_mean(tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(logits=pred, labels=y), axis=1))
 		#learning_rate = tf.placeholder(tf.float32, ())
 		learning_rate = globals.LEARNING_RATE
 		optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost)
-		correct_prediction = tf.equal(tf.argmax(pred, 1), tf.argmax(y, 1))
+		if (globals.DATASET_NUMBER_CATEGORIES > 0 and globals.DATASET_NUMBER_MATERIALS <= 1) or (globals.DATASET_NUMBER_CATEGORIES == 0 and globals.DATASET_NUMBER_MATERIALS > 1):
+			correct_prediction = tf.equal(tf.argmax(pred, 1), tf.argmax(y, 1))
+		else:
+			correct_prediction = tf.equal(tf.round(tf.sigmoid(pred)), y)		
 		accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 		init = tf.global_variables_initializer()
 		saver = tf.train.Saver()
@@ -190,7 +196,7 @@ class Model(object):
 			train_loss = []
 			learning_rates = []
 
-			for i in range(globals.TRAINING_EPOCHS):
+			for i in range(globals.TRAINING_EPOCHS if find_lr is None else 100):
 				x_train, y_train = self.data.shuffle(x_train, y_train)
 				x_test, y_test = self.data.shuffle(x_test, y_test)
 				
@@ -203,7 +209,7 @@ class Model(object):
 				test_accuracy = []
 
 				for batch in range(len(x_train)//batch_size):
-					print("Iter", i, "Batch", batch, "of", len(x_train)//batch_size, end="\r")
+					print("Epoch", i, "Batch", batch, "of", len(x_train)//batch_size, end="\r")
 					batch_x = x_train[batch*batch_size:min((batch+1)*batch_size,len(x_train))]
 					batch_y = y_train[batch*batch_size:min((batch+1)*batch_size,len(y_train))]
 					#learning_rates.append(lr)
@@ -216,8 +222,7 @@ class Model(object):
 							summary, opt, scores, descr = sess.run([merged, optimizer, view_discrimination_scores, view_descriptors], feed_dict={x: batch_x, y: batch_y})
 						else:
 							#opt = sess.run([optimizer], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
-							opt = sess.run([optimizer], feed_dict={x: batch_x, y: batch_y})
-
+							opt, s = sess.run([optimizer,view_discrimination_scores], feed_dict={x: batch_x, y: batch_y})
 						#loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
 						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y})
 						if globals.USE_SUMMARY:
@@ -237,7 +242,8 @@ class Model(object):
 							return train_loss, learning_rates, train_accuracy, test_accuracy
 
 					#lr = self.update_learning_rate(lr, find_lr)
-				print("Iter " + str(i) + ", Loss= " + \
+				print(s)
+				print("Epoch " + str(i) + ", Loss= " + \
 				          "{:.6f}".format(train_loss[-1]) + ", Training Accuracy= " + \
 				          "{:.5f}".format(acc))
 				#print("Optimization Finished!")
@@ -278,11 +284,14 @@ class Model(object):
 		is_multi_view = None
 		saliency = None
 		groups = None
+		view_scores = None
+		group_ids = None
+		group_weights = None
 		
 		#if multi view object is given
 		if img.shape[1] == n_views:
 			is_multi_view = True
-			x = tf.placeholder(tf.float32, [None, n_views, globals.IMAGE_SIZE, globals.IMAGE_SIZE, 1], name="x")
+			x = tf.placeholder(tf.float32, [None, n_views, globals.IMAGE_SIZE, globals.IMAGE_SIZE, globals.IMAGE_CHANNELS], name="x")
 
 			with tf.name_scope("view_descriptors_and_scores"):
 				view_descriptors, view_discrimination_scores = tf.map_fn(self.get_view_descriptors_and_scores, x, dtype=(tf.float32, tf.float32))
@@ -294,11 +303,14 @@ class Model(object):
 			with tf.name_scope("grouping"):
 				batch_group_descriptors = tf.map_fn(self.grouping.get_group_descriptors, [batch_group_idx, view_descriptors], dtype=tf.float32)
 				pred = self.cnn_fcs_grouping(batch_group_descriptors, batch_group_weights, weights, biases)
-				pred = tf.nn.sigmoid(pred)
+				if (globals.DATASET_NUMBER_CATEGORIES > 0 and globals.DATASET_NUMBER_MATERIALS <= 1) or (globals.DATASET_NUMBER_CATEGORIES == 0 and globals.DATASET_NUMBER_MATERIALS > 1):
+					pred = tf.nn.softmax(pred)
+				else:
+					pred = tf.nn.sigmoid(pred)
 		else:
 			is_multi_view = False
 			# feed input to connected cnn
-			x = tf.placeholder("float", [None, globals.IMAGE_SIZE, globals.IMAGE_SIZE, 1], name="x")
+			x = tf.placeholder(tf.float32, [None, globals.IMAGE_SIZE, globals.IMAGE_SIZE, globals.IMAGE_CHANNELS], name="x")
 			pred = self.cnn_convs(x, weights, biases)
 			pred = self.cnn_fcs(pred, weights, biases)
 			pred = tf.nn.softmax(pred)
@@ -312,11 +324,11 @@ class Model(object):
 			saver.restore(sess, ckpt_file)
 			classification = sess.run(pred, feed_dict={x: img})
 			if is_multi_view:
-				groups = sess.run(batch_group_idx, feed_dict={x: img})
+				group_ids, group_weights, view_scores = sess.run([batch_group_idx, batch_group_weights, view_discrimination_scores], feed_dict={x: img})
 			else:
 				saliency = sess.run(saliency, feed_dict={x: img})
 
-		return classification, saliency, groups
+		return classification, saliency, view_scores, group_ids, group_weights
 
 	def get_weights(self):
 		with tf.variable_scope("cnn", reuse=tf.AUTO_REUSE):
@@ -324,7 +336,7 @@ class Model(object):
 				weights = {
 					#shape = (filter_size_row, filter_size_col, channels of input, number of convs)
 					#vgg-m
-					"wc1": tf.get_variable("W0", shape=(7,7,1,96), initializer=tf.contrib.layers.xavier_initializer()),
+					"wc1": tf.get_variable("W0", shape=(7,7,globals.IMAGE_CHANNELS,96), initializer=tf.contrib.layers.xavier_initializer()),
 					"wc2": tf.get_variable("W1", shape=(5,5,96,256), initializer=tf.contrib.layers.xavier_initializer()),
 					"wc3": tf.get_variable("W2", shape=(3,3,256,384), initializer=tf.contrib.layers.xavier_initializer()),
 					"wc4": tf.get_variable("W3", shape=(3,3,384,384), initializer=tf.contrib.layers.xavier_initializer()),
@@ -393,12 +405,12 @@ class Model(object):
 			fc1 = tf.reshape(i, [-1, weights['wd1'].get_shape().as_list()[0]])
 			fc1 = tf.add(tf.matmul(fc1, weights['wd1']), biases['bd1'])
 			fc1 = tf.nn.relu(fc1)
-			fc1 = tf.nn.dropout(fc1, 0.5)
+			#fc1 = tf.nn.dropout(fc1, 1-dropout_prob)
 
 			fc2 = tf.reshape(fc1, [-1, weights['wd2'].get_shape().as_list()[0]])
 			fc2 = tf.add(tf.matmul(fc2, weights['wd2']), biases['bd2'])
 			fc2 = tf.nn.relu(fc2)
-			fc2 = tf.nn.dropout(fc2, 0.5)
+			#fc2 = tf.nn.dropout(fc2, 1-dropout_prob)
 
 			shape_descriptors.append(fc2)
 

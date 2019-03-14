@@ -7,6 +7,7 @@ import model
 import globals
 import cv2
 import tensorflow as tf
+import os
 
 if __name__ == "__main__":
 	#first get command line arguments
@@ -43,7 +44,7 @@ if __name__ == "__main__":
 
 	if arg_train == "single":
 		#create placeholders for input and output data
-		x = tf.placeholder(tf.float32, (None, globals.IMAGE_SIZE, globals.IMAGE_SIZE, 1), name="x")
+		x = tf.placeholder(tf.float32, (None, globals.IMAGE_SIZE, globals.IMAGE_SIZE, globals.IMAGE_CHANNELS), name="x")
 		y = tf.placeholder(tf.float32, (None, globals.N_CLASSES), name="y")
 
 		#rough training of model: only one image
@@ -51,19 +52,9 @@ if __name__ == "__main__":
 
 	elif arg_train == "multi":
 		#group module training with multiview input
-		x_mv = tf.placeholder(tf.float32, (None, globals.N_VIEWS, globals.IMAGE_SIZE, globals.IMAGE_SIZE, 1), name="x_mv")
+		x_mv = tf.placeholder(tf.float32, (None, globals.N_VIEWS, globals.IMAGE_SIZE, globals.IMAGE_SIZE, globals.IMAGE_CHANNELS), name="x_mv")
 		y = tf.placeholder(tf.float32, (None, globals.N_CLASSES), name="y")
 
 		#multi_view_dataset = copy.deepcopy(set)
 		multi_view_dataset = data.single_to_multi_view(*dataset, globals.N_VIEWS)
 		model.train(x_mv, y, multi_view_dataset, weights, biases, arg_ckpt)
-
-	if arg_predict:
-		img = cv2.imread(val, 0)
-		if img.shape[0] != globals.IMAGE_SIZE and img.shape[1] != globals.IMAGE_SIZE:
-			img = cv2.resize(img, (globals.IMAGE_SIZE, globals.IMAGE_SIZE), interpolation=cv2.INTER_AREA)
-		img = np.reshape(img, [-1, globals.IMAGE_SIZE, globals.IMAGE_SIZE, 1])
-		classifications = model.predict(img)
-		for i in classifications:
-			i = sorted(zip(globals.DATASET_LABELS, i), key=lambda x: x[1], reverse=True)
-			print(*i, sep="\n")

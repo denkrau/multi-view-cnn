@@ -3,7 +3,6 @@ import cv2
 import random
 import os
 import globals
-import tensorflow as tf
 
 class Data(object):
 
@@ -14,6 +13,7 @@ class Data(object):
 		x_test = []
 		y_test = []
 		create_labels = False
+		has_materials = True if globals.DATASET_NUMBER_MATERIALS > 1 else False
 
 		sum_labels = globals.DATASET_NUMBER_CATEGORIES + globals.DATASET_NUMBER_MATERIALS
 		labels = self.load_labels()
@@ -32,15 +32,25 @@ class Data(object):
 				if os.path.splitext(file)[1] in globals.DATASET_FORMATS:
 					label_cat = os.path.basename(os.path.dirname(root))
 					label_mat_id = os.path.splitext(file)[0].split("_")[2]
-					img = cv2.imread(os.path.join(root, file), 0)
+					img = cv2.imread(os.path.join(root, file), 1 % globals.IMAGE_CHANNELS)
+					if img.dtype == np.uint8:
+						img = img.astype(np.float32)
+						img = img / 255.0
 					if img.shape[0] != globals.IMAGE_SIZE and img.shape[1] != globals.IMAGE_SIZE:
 						img = cv2.resize(img, (globals.IMAGE_SIZE, globals.IMAGE_SIZE), interpolation=cv2.INTER_AREA)
 					if set_ == "train":
 						x_train.append(img)
-						y_train.append([labels.index(label_cat), int(label_mat_id) + int(globals.DATASET_NUMBER_CATEGORIES)])
+						if has_materials:
+							y_train.append([labels.index(label_cat), int(label_mat_id) + int(globals.DATASET_NUMBER_CATEGORIES)])
+						else:
+							y_train.append(labels.index(label_cat))
 					elif set_ == "test":
 						x_test.append(img)
-						y_test.append([labels.index(label_cat), int(label_mat_id) + int(globals.DATASET_NUMBER_CATEGORIES)])
+						if has_materials:
+							y_test.append([labels.index(label_cat), int(label_mat_id) + int(globals.DATASET_NUMBER_CATEGORIES)])
+						else:
+							y_test.append(labels.index(label_cat))
+
 		if create_labels:
 			for i in range(globals.DATASET_NUMBER_MATERIALS):
 				labels.append(str(i))
@@ -50,14 +60,18 @@ class Data(object):
 		#one-hot encode labels
 		#don't use tensorflows encoding due to evaluation in session runs
 		if one_hot:
-			y_test = [np.eye(sum_labels)[i[0]] + np.eye(sum_labels)[i[1]] for i in y_test]
-			y_train = [np.eye(sum_labels)[i[0]] + np.eye(sum_labels)[i[1]] for i in y_train]
-		else:
-			y_train = np.array(y_train)
-			y_test = np.array(y_test)
+			if has_materials:
+				y_test = [np.eye(sum_labels)[i[0]] + np.eye(sum_labels)[i[1]] for i in y_test]
+				y_train = [np.eye(sum_labels)[i[0]] + np.eye(sum_labels)[i[1]] for i in y_train]
+			else:
+				y_test = np.eye(sum_labels)[y_test]
+				y_train = np.eye(sum_labels)[y_train]
+		
+		y_train = np.array(y_train, dtype=np.float32)
+		y_test = np.array(y_test, dtype=np.float32)
 
-		x_train = np.reshape(x_train, [-1, globals.IMAGE_SIZE, globals.IMAGE_SIZE, 1])
-		x_test = np.reshape(x_test, [-1, globals.IMAGE_SIZE, globals.IMAGE_SIZE, 1])
+		x_train = np.reshape(x_train, [-1, globals.IMAGE_SIZE, globals.IMAGE_SIZE, globals.IMAGE_CHANNELS])
+		x_test = np.reshape(x_test, [-1, globals.IMAGE_SIZE, globals.IMAGE_SIZE, globals.IMAGE_CHANNELS])
 
 		return x_train, y_train, x_test, y_test
 
@@ -73,13 +87,13 @@ class Data(object):
 			n_views: number of views per object
 
 		Returns:
-			x_train: reshaped training set with views as each object's channels; size [-1, n_views, image_size, image_size, 1]
+			x_train: reshaped training set with views as each object's depth; size [-1, n_views, image_size, image_size, channels]
 			y_train: label ob each training object
-			x_test: reshaped testing set with views as each object's channels; size [-1, n_views, image_size, image_size, 1]
+			x_test: reshaped testing set with views as each object's depth; size [-1, n_views, image_size, image_size, channels]
 			y_test: label of each testing object
 		"""
-		x_train = x_train.reshape([-1, n_views, globals.IMAGE_SIZE, globals.IMAGE_SIZE, 1])
-		x_test = x_test.reshape([-1, n_views, globals.IMAGE_SIZE, globals.IMAGE_SIZE, 1])
+		x_train = x_train.reshape([-1, n_views, globals.IMAGE_SIZE, globals.IMAGE_SIZE, globals.IMAGE_CHANNELS])
+		x_test = x_test.reshape([-1, n_views, globals.IMAGE_SIZE, globals.IMAGE_SIZE, globals.IMAGE_CHANNELS])
 		y_train = y_train[0::n_views]
 		y_test = y_test[0::n_views]
 		return x_train, y_train, x_test, y_test
