@@ -4,10 +4,9 @@ import os
 import numpy as np
 import cv2
 import tensorflow as tf
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
 import model
 import data
-import globals
+import params
 import matplotlib.pyplot as plt
 
 if __name__ == "__main__":
@@ -19,7 +18,7 @@ if __name__ == "__main__":
 	arg_multi = None
 	arg_groups = None
 	arg_saliency = None
-	arg_views = globals.N_VIEWS
+	arg_views = params.N_VIEWS
 	try:
 		args, values = getopt.getopt(args, unixOptions, gnuOptions)
 	except getopt.error as err:
@@ -41,12 +40,12 @@ if __name__ == "__main__":
 	labels = data.load_labels()
 
 	if arg_multi is None:
-		img = cv2.imread(values[0], 1 % globals.IMAGE_CHANNELS)
+		img = cv2.imread(values[0], 1 % params.IMAGE_CHANNELS)
 		if img.dtype == np.uint8:
 			img = img / 255.0
-		if img.shape[0] != globals.IMAGE_SIZE and img.shape[1] != globals.IMAGE_SIZE:
-			img = cv2.resize(img, (globals.IMAGE_SIZE, globals.IMAGE_SIZE), interpolation=cv2.INTER_AREA)
-		img = np.reshape(img, [-1, globals.IMAGE_SIZE, globals.IMAGE_SIZE, globals.IMAGE_CHANNELS])
+		if img.shape[0] != params.IMAGE_SIZE and img.shape[1] != params.IMAGE_SIZE:
+			img = cv2.resize(img, (params.IMAGE_SIZE, params.IMAGE_SIZE), interpolation=cv2.INTER_AREA)
+		img = np.reshape(img, [-1, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS])
 	else:
 		# airplane_0627_001.jpg
 		# Format has to be name_id.jpg
@@ -56,15 +55,13 @@ if __name__ == "__main__":
 		images = []
 		for i in range(arg_views):
 			path = os.path.join(head, "_".join([*name[:-1], str(i).zfill(3)])) + ext
-			img = cv2.imread(path, 1 % globals.IMAGE_CHANNELS)
+			img = cv2.imread(path, 1 % params.IMAGE_CHANNELS)
 			if img.dtype == np.uint8:
 				img = img / 255.0
-			if img.shape[0] != globals.IMAGE_SIZE and img.shape[1] != globals.IMAGE_SIZE:
-				img = cv2.resize(img, (globals.IMAGE_SIZE, globals.IMAGE_SIZE), interpolation=cv2.INTER_AREA)
+			if img.shape[0] != params.IMAGE_SIZE and img.shape[1] != params.IMAGE_SIZE:
+				img = cv2.resize(img, (params.IMAGE_SIZE, params.IMAGE_SIZE), interpolation=cv2.INTER_AREA)
 			images.append(img)
-			#plt.subplot(3,4,i+1)
-			#plt.imshow(img.reshape(224,224,3), vmin=0, vmax=255)
-		img = np.reshape(images, [-1, arg_views, globals.IMAGE_SIZE, globals.IMAGE_SIZE, globals.IMAGE_CHANNELS])
+		img = np.reshape(images, [-1, arg_views, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS])
 
 	classifications, saliency, scores, group_ids, group_weights = model.predict(img)
 
@@ -86,7 +83,7 @@ if __name__ == "__main__":
 
 			groups = sorted(zip(images, s, g), key=lambda x: x[2])
 			_, idx = np.unique([i[2] for i in groups], return_index=True)
-			for i in range(globals.N_VIEWS):
+			for i in range(params.N_VIEWS):
 				ax = plt.subplot(1,12,i+1)
 				if i in idx:
 					ax.text(0.5, 1.1, round(w[groups[i][2]], 3), size=12, ha="center", transform=ax.transAxes)

@@ -1,6 +1,6 @@
 import numpy as np
 import tensorflow as tf
-import globals
+import params
 
 class Grouping(object):
 	
@@ -16,16 +16,16 @@ class Grouping(object):
 	    	group_weights: normed weights of each group id
 		"""
 		#group range and amount of views in each group
-		group_size = tf.divide(1.0, globals.N_VIEWS)
+		group_size = tf.divide(1.0, params.N_VIEWS)
 
 		#contains group id of each view. index of tensor corresponds to view id
 		group_idx = tf.cast(tf.floordiv(view_scores, group_size), tf.int32)
 		group_weights = []
 
 		#create a mask for each group for weight calculation
-		for i in range(globals.N_VIEWS):
+		for i in range(params.N_VIEWS):
 			#create boolean mask for current group id
-			mask = tf.fill([globals.N_VIEWS], i)
+			mask = tf.fill([params.N_VIEWS], i)
 			mask = tf.equal(group_idx, mask)
 			#calculate sum of view scores of current group
 			score_sum = tf.reduce_sum(tf.boolean_mask(view_scores, mask), axis=0)
@@ -45,9 +45,9 @@ class Grouping(object):
 		group_idx, view_descriptors = group_idx_and_view_descriptors
 		group_descriptors = []
 		#create mask for each group and calculate mean of it's view descriptors
-		for i in range(globals.N_VIEWS):
+		for i in range(params.N_VIEWS):
 			#create mask for current group
-			mask = tf.fill([globals.N_VIEWS], i)
+			mask = tf.fill([params.N_VIEWS], i)
 			mask = tf.equal(group_idx, mask)
 
 			#calculate mean of view descriptors for current group
@@ -107,14 +107,14 @@ class Grouping(object):
 			"""
 			#TODO: should not be necessary because they have already n_view elements
 			#pad list to full size, necessary that each subtensor has same length
-			for i in range(globals.N_VIEWS - len(batch_group_idx)):
+			for i in range(params.N_VIEWS - len(batch_group_idx)):
 				batch_group_idx.append(0)
-			for i in range(globals.N_VIEWS - len(batch_avg_group_weights_norm)):
+			for i in range(params.N_VIEWS - len(batch_avg_group_weights_norm)):
 				batch_avg_group_weights_norm.append(0)
 			"""
 		#reshape lists to match placeholders for later use
-		batch_group_idx = np.reshape(batch_group_idx, [-1, globals.N_VIEWS])
-		batch_avg_group_weights_norm = np.reshape(batch_avg_group_weights_norm, [-1, globals.N_VIEWS])
+		batch_group_idx = np.reshape(batch_group_idx, [-1, params.N_VIEWS])
+		batch_avg_group_weights_norm = np.reshape(batch_avg_group_weights_norm, [-1, params.N_VIEWS])
 
 		return batch_group_idx, batch_avg_group_weights_norm
 
@@ -132,12 +132,12 @@ class Grouping(object):
 		batch_group_descriptors = []
 		#iterate over batches
 		for group_idx, multi_view_descriptor in zip(batch_group_idx, batch_view_descriptors):
-			view_descriptors = np.split(multi_view_descriptor, globals.N_VIEWS, axis=0) #[[1, 1, 6, 6, 512]]
+			view_descriptors = np.split(multi_view_descriptor, params.N_VIEWS, axis=0) #[[1, 1, 6, 6, 512]]
 			groups = np.unique(group_idx)
 			n_groups = groups.shape[0]
 			descriptor_channels = view_descriptors.shape[-1]
 			#divide each view descriptor into a group and pool them afterwards
-			for i in range(globals.N_VIEWS):
+			for i in range(params.N_VIEWS):
 				#check every group index. if group has corresponding view descriptors pool them
 				#else add an ampty view descriptor to match shape of group weights vector
 				if i in groups:
@@ -149,6 +149,6 @@ class Grouping(object):
 				else:
 					batch_group_descriptors.append(np.zeros([1,6,6,descriptor_channels]))
 					
-		batch_group_descriptors = np.reshape(batch_group_descriptors, [-1, globals.N_VIEWS, 1, 6, 6, descriptor_channels])
+		batch_group_descriptors = np.reshape(batch_group_descriptors, [-1, params.N_VIEWS, 1, 6, 6, descriptor_channels])
 
 		return batch_group_descriptors

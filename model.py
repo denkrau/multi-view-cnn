@@ -3,7 +3,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.python import debug as tf_debug
 import grouping
-import globals
+import params
 import data
 
 class Model(object):
@@ -85,7 +85,7 @@ class Model(object):
 			fc3: predicted classification of object or views, respectively; shape [-1, 1, n_classes]
 		"""
 		shape_descriptors = tf.map_fn(self.get_shape_descriptors, group_descriptors)
-		shape_descriptors = tf.reshape(shape_descriptors, [-1, globals.N_VIEWS, weights["wd2"].get_shape().as_list()[0]])
+		shape_descriptors = tf.reshape(shape_descriptors, [-1, params.N_VIEWS, weights["wd2"].get_shape().as_list()[0]])
 
 		#make tensors ready for single shape descriptor calculation
 		#transpose, but keep first dimension as batch dimension
@@ -140,18 +140,18 @@ class Model(object):
 		x_train, y_train, x_test, y_test = dataset
 		is_multi_view = False
 		# if shape of x placeholder relates to n_views dimension a multi-view input is supposed
-		if x.shape[1] == globals.N_VIEWS:
+		if x.shape[1] == params.N_VIEWS:
 			is_multi_view = True
-			batch_size = globals.BATCH_SIZE_MULTI
+			batch_size = params.BATCH_SIZE_MULTI
 			# feed each batch element of input in first part of cnn (conv layers) to get view descriptors and scores of each channel, i.e. view
 			# view_descriptors = [-1, n_views, 1, 6, 6, 512], view_discrimination_scores = [-1, n_views, 1, 1] -> [-1, n_views]
 			with tf.name_scope("view_descriptors_and_scores"):
 				view_descriptors, view_discrimination_scores = tf.map_fn(self.get_view_descriptors_and_scores, x, dtype=(tf.float32, tf.float32))
-				if globals.USE_SUMMARY:
+				if params.USE_SUMMARY:
 					tf.summary.histogram("view_descriptors", view_descriptors)
 					tf.summary.histogram("view_scores", view_discrimination_scores)
 				#make scores more compact
-				view_discrimination_scores = tf.reshape(view_discrimination_scores, [-1, globals.N_VIEWS])
+				view_discrimination_scores = tf.reshape(view_discrimination_scores, [-1, params.N_VIEWS])
 
 			with tf.name_scope("group_weights"):
 				batch_group_idx, batch_group_weights = tf.map_fn(self.grouping.get_group_weights, view_discrimination_scores, dtype=(tf.int32, tf.float32))
@@ -160,27 +160,28 @@ class Model(object):
 				batch_group_descriptors = tf.map_fn(self.grouping.get_group_descriptors, [batch_group_idx, view_descriptors], dtype=tf.float32)
 				pred = self.cnn_fcs_grouping(batch_group_descriptors, batch_group_weights, weights, biases)
 		else:
-			batch_size = globals.BATCH_SIZE_SINGLE
+			batch_size = params.BATCH_SIZE_SINGLE
 			# feed input to connected cnn
 			pred = self.cnn_convs(x, weights, biases)
 			pred = self.cnn_fcs(pred, weights, biases)
+
 		#sigmoid for multi-label, softmax for single-label
-		if (globals.DATASET_NUMBER_CATEGORIES > 0 and globals.DATASET_NUMBER_MATERIALS <= 1) or (globals.DATASET_NUMBER_CATEGORIES == 0 and globals.DATASET_NUMBER_MATERIALS > 1):
+		if params.DATASET_IS_SINGLELABEL:
 			cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=pred, labels=y))
 		else:
 			cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=pred, labels=y))
 		#cost = tf.reduce_mean(tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(logits=pred, labels=y), axis=1))
 		#learning_rate = tf.placeholder(tf.float32, ())
-		learning_rate = globals.LEARNING_RATE
+		learning_rate = params.LEARNING_RATE
 		optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost)
-		if (globals.DATASET_NUMBER_CATEGORIES > 0 and globals.DATASET_NUMBER_MATERIALS <= 1) or (globals.DATASET_NUMBER_CATEGORIES == 0 and globals.DATASET_NUMBER_MATERIALS > 1):
+		if params.DATASET_IS_SINGLELABEL:
 			correct_prediction = tf.equal(tf.argmax(pred, 1), tf.argmax(y, 1))
 		else:
 			correct_prediction = tf.equal(tf.round(tf.sigmoid(pred)), y)		
 		accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 		init = tf.global_variables_initializer()
 		saver = tf.train.Saver()
-		if globals.USE_SUMMARY:
+		if params.USE_SUMMARY:
 			merged = tf.summary.merge_all()
 		#config = tf.ConfigProto()
 		#config.gpu_options.allow_growth = True
@@ -190,13 +191,13 @@ class Model(object):
 				sess.run(init)
 			else:
 				saver.restore(sess, ckpt)
-			if globals.USE_SUMMARY:
-				summary_writer = tf.summary.FileWriter(globals.SUMMARY_PATH, sess.graph)
+			if params.USE_SUMMARY:
+				summary_writer = tf.summary.FileWriter(params.SUMMARY_PATH, sess.graph)
 
 			train_loss = []
 			learning_rates = []
 
-			for i in range(globals.TRAINING_EPOCHS if find_lr is None else 100):
+			for i in range(params.TRAINING_EPOCHS if find_lr is None else 100):
 				x_train, y_train = self.data.shuffle(x_train, y_train)
 				x_test, y_test = self.data.shuffle(x_test, y_test)
 				
@@ -217,7 +218,7 @@ class Model(object):
 					    # Calculate batch loss and accuracy
 
 					if is_multi_view:
-						if globals.USE_SUMMARY:
+						if params.USE_SUMMARY:
 							#summary, opt, scores, descr = sess.run([merged, optimizer, view_discrimination_scores, view_descriptors], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
 							summary, opt, scores, descr = sess.run([merged, optimizer, view_discrimination_scores, view_descriptors], feed_dict={x: batch_x, y: batch_y})
 						else:
@@ -225,7 +226,7 @@ class Model(object):
 							opt, s = sess.run([optimizer,view_discrimination_scores], feed_dict={x: batch_x, y: batch_y})
 						#loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
 						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y})
-						if globals.USE_SUMMARY:
+						if params.USE_SUMMARY:
 							summary_writer.add_summary(summary)
 
 					else:
@@ -270,16 +271,16 @@ class Model(object):
 
 				train_accuracy.append(acc)
 			try:
-				saver.save(sess, os.path.join(globals.CKPT_PATH, globals.CKPT_FILE))
+				saver.save(sess, os.path.join(params.CKPT_PATH, params.CKPT_FILE))
 			except Exception as e:
 				print(e)
 			print("Training finished!")
-			if globals.USE_SUMMARY:
+			if params.USE_SUMMARY:
 				summary_writer.close()
 
 		return train_loss, learning_rates, train_accuracy, test_accuracy
 
-	def predict(self, img, y=None, n_views=globals.N_VIEWS, ckpt_file=None):
+	def predict(self, img, y=None, n_views=params.N_VIEWS, ckpt_file=None):
 		weights, biases = self.get_weights()
 		is_multi_view = None
 		saliency = None
@@ -291,11 +292,11 @@ class Model(object):
 		#if multi view object is given
 		if img.shape[1] == n_views:
 			is_multi_view = True
-			x = tf.placeholder(tf.float32, [None, n_views, globals.IMAGE_SIZE, globals.IMAGE_SIZE, globals.IMAGE_CHANNELS], name="x")
+			x = tf.placeholder(tf.float32, [None, n_views, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS], name="x")
 
 			with tf.name_scope("view_descriptors_and_scores"):
 				view_descriptors, view_discrimination_scores = tf.map_fn(self.get_view_descriptors_and_scores, x, dtype=(tf.float32, tf.float32))
-				view_discrimination_scores = tf.reshape(view_discrimination_scores, [-1, globals.N_VIEWS])
+				view_discrimination_scores = tf.reshape(view_discrimination_scores, [-1, params.N_VIEWS])
 
 			with tf.name_scope("group_weights"):
 				batch_group_idx, batch_group_weights = tf.map_fn(self.grouping.get_group_weights, view_discrimination_scores, dtype=(tf.int32, tf.float32))
@@ -303,14 +304,14 @@ class Model(object):
 			with tf.name_scope("grouping"):
 				batch_group_descriptors = tf.map_fn(self.grouping.get_group_descriptors, [batch_group_idx, view_descriptors], dtype=tf.float32)
 				pred = self.cnn_fcs_grouping(batch_group_descriptors, batch_group_weights, weights, biases)
-				if (globals.DATASET_NUMBER_CATEGORIES > 0 and globals.DATASET_NUMBER_MATERIALS <= 1) or (globals.DATASET_NUMBER_CATEGORIES == 0 and globals.DATASET_NUMBER_MATERIALS > 1):
+				if params.DATASET_IS_SINGLELABEL:
 					pred = tf.nn.softmax(pred)
 				else:
 					pred = tf.nn.sigmoid(pred)
 		else:
 			is_multi_view = False
 			# feed input to connected cnn
-			x = tf.placeholder(tf.float32, [None, globals.IMAGE_SIZE, globals.IMAGE_SIZE, globals.IMAGE_CHANNELS], name="x")
+			x = tf.placeholder(tf.float32, [None, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS], name="x")
 			pred = self.cnn_convs(x, weights, biases)
 			pred = self.cnn_fcs(pred, weights, biases)
 			pred = tf.nn.softmax(pred)
@@ -318,7 +319,7 @@ class Model(object):
 
 		saver = tf.train.Saver()
 		if ckpt_file is None:
-			ckpt_file = os.path.join(globals.CKPT_PATH, globals.CKPT_FILE)
+			ckpt_file = os.path.join(params.CKPT_PATH, params.CKPT_FILE)
 
 		with tf.Session() as sess:
 			saver.restore(sess, ckpt_file)
@@ -336,14 +337,14 @@ class Model(object):
 				weights = {
 					#shape = (filter_size_row, filter_size_col, channels of input, number of convs)
 					#vgg-m
-					"wc1": tf.get_variable("W0", shape=(7,7,globals.IMAGE_CHANNELS,96), initializer=tf.contrib.layers.xavier_initializer()),
+					"wc1": tf.get_variable("W0", shape=(7,7,params.IMAGE_CHANNELS,96), initializer=tf.contrib.layers.xavier_initializer()),
 					"wc2": tf.get_variable("W1", shape=(5,5,96,256), initializer=tf.contrib.layers.xavier_initializer()),
 					"wc3": tf.get_variable("W2", shape=(3,3,256,384), initializer=tf.contrib.layers.xavier_initializer()),
 					"wc4": tf.get_variable("W3", shape=(3,3,384,384), initializer=tf.contrib.layers.xavier_initializer()),
 					"wc5": tf.get_variable("W4", shape=(3,3,384,256), initializer=tf.contrib.layers.xavier_initializer()),
 					"wd1": tf.get_variable("W5", shape=(6*6*256, 4096), initializer=tf.contrib.layers.xavier_initializer()),
 					"wd2": tf.get_variable("W6", shape=(4096, 4096), initializer=tf.contrib.layers.xavier_initializer()),
-					"wd3": tf.get_variable("W7", shape=(4096, globals.N_CLASSES), initializer=tf.contrib.layers.xavier_initializer()),
+					"wd3": tf.get_variable("W7", shape=(4096, params.N_CLASSES), initializer=tf.contrib.layers.xavier_initializer()),
 					#grouping module
 					"wd4": tf.get_variable("W8", shape=(6*6*256, 1), initializer=tf.contrib.layers.xavier_initializer())
 				}
@@ -356,7 +357,7 @@ class Model(object):
 					'bc5': tf.get_variable('B4', shape=(256), initializer=tf.contrib.layers.xavier_initializer()),
 					'bd1': tf.get_variable('B5', shape=(4096), initializer=tf.contrib.layers.xavier_initializer()),
 					'bd2': tf.get_variable('B6', shape=(4096), initializer=tf.contrib.layers.xavier_initializer()),
-					'bd3': tf.get_variable('B7', shape=(globals.N_CLASSES), initializer=tf.contrib.layers.xavier_initializer()),
+					'bd3': tf.get_variable('B7', shape=(params.N_CLASSES), initializer=tf.contrib.layers.xavier_initializer()),
 					#grouping module
 					'bd4': tf.get_variable('B8', shape=(1), initializer=tf.contrib.layers.xavier_initializer())
 				}
@@ -377,7 +378,7 @@ class Model(object):
 		view_discrimination_scores = [] #n_views * [1, 1]
 		weights, biases = self.get_weights()
 		#split across views to get list of tensors of each view
-		views = tf.split(x, num_or_size_splits=globals.N_VIEWS, axis=0) #n_views * [1, image_size, image_size, 1]
+		views = tf.split(x, num_or_size_splits=params.N_VIEWS, axis=0) #n_views * [1, image_size, image_size, 1]
 		for i in views:
 			view_descriptor = self.cnn_convs(i, weights, biases)
 			view_descriptors.append(view_descriptor)
@@ -401,7 +402,7 @@ class Model(object):
 		shape_descriptors = []
 		weights, biases = self.get_weights()
 		#get the shape descriptor i.e. the output of fc7 of every group descriptor
-		for i in tf.split(group_descriptors, num_or_size_splits=globals.N_VIEWS, axis=0):
+		for i in tf.split(group_descriptors, num_or_size_splits=params.N_VIEWS, axis=0):
 			fc1 = tf.reshape(i, [-1, weights['wd1'].get_shape().as_list()[0]])
 			fc1 = tf.add(tf.matmul(fc1, weights['wd1']), biases['bd1'])
 			fc1 = tf.nn.relu(fc1)
@@ -419,25 +420,25 @@ class Model(object):
 	def get_learning_rate(self, find_lr=None):
 		learning_rate = None
 		if find_lr is None:
-			learning_rate = globals.LEARNING_RATE
+			learning_rate = params.LEARNING_RATE
 		else:
-			learning_rate = globals.FIND_LEARNING_RATE_MIN
+			learning_rate = params.FIND_LEARNING_RATE_MIN
 
 		return learning_rate
 
 	def update_learning_rate(self, current_lr, find_lr=None):
 		learning_rate = current_lr
 		if find_lr is None:
-			if globals.LEARNING_RATE_TYPE == 0:
+			if params.LEARNING_RATE_TYPE == 0:
 				pass
-			elif globals.LEARNING_RATE_TYPE == 1:
+			elif params.LEARNING_RATE_TYPE == 1:
 				pass
-			elif globals.LEARNING_RATE_TYPE == 2:
+			elif params.LEARNING_RATE_TYPE == 2:
 				pass
-			elif globals.LEARNING_RATE_TYPE == 3:
+			elif params.LEARNING_RATE_TYPE == 3:
 				pass
 		else:
-			learning_rate = current_lr * globals.FIND_LEARNING_RATE_GROWTH
+			learning_rate = current_lr * params.FIND_LEARNING_RATE_GROWTH
 
 		return learning_rate
 

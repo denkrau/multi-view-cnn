@@ -2,7 +2,9 @@ import numpy as np
 import cv2
 import random
 import os
-import globals
+import params
+import tensorflow as tf
+import matplotlib.pyplot as plt
 
 class Data(object):
 
@@ -13,69 +15,111 @@ class Data(object):
 		x_test = []
 		y_test = []
 		create_labels = False
-		has_materials = True if globals.DATASET_NUMBER_MATERIALS > 1 else False
+		has_materials = True if params.DATASET_NUMBER_MATERIALS > 0 else False
+		has_categories = True if params.DATASET_NUMBER_CATEGORIES > 0 else False
 
-		sum_labels = globals.DATASET_NUMBER_CATEGORIES + globals.DATASET_NUMBER_MATERIALS
+
+		#get number of labels
+		if params.DATASET_IS_SINGLELABEL:
+			sum_labels = params.DATASET_NUMBER_CATEGORIES * params.DATASET_NUMBER_MATERIALS \
+				if has_categories and has_materials \
+				else max(params.DATASET_NUMBER_CATEGORIES, params.DATASET_NUMBER_MATERIALS)
+		else:
+			sum_labels = params.DATASET_NUMBER_CATEGORIES + params.DATASET_NUMBER_MATERIALS
+
 		labels = self.load_labels()
+		if labels is not None and len(labels) != sum_labels:
+			labels = None
 
 		#supported filename is
 		#path-to-dataset/category/set/category_imgId_matId_viewId.ext
 		first_run = True
 		for root, dirs, files in os.walk(path):
+			#on first run all categories are found as folders
+			#store them as labels and append each material id each time if necessary
 			if first_run and labels is None:
 				first_run = False
-				labels = dirs
+				if params.DATASET_IS_SINGLELABEL:
+					labels = []
+					if has_categories and has_materials:
+						#labels: A1, A2, B1, B2, C1, C2
+						for d in dirs:
+							for i in range(params.DATASET_NUMBER_MATERIALS):
+								labels.append(d+"_"+str(i))
+					elif not has_categories and has_materials:
+						#labels: 1, 2, 3
+						for i in range(params.DATASET_NUMBER_MATERIALS):
+							labels.append(str(i))
+					elif has_categories and not has_materials:
+						#labels: A, B, C
+						labels = dirs
+					else:
+						print("[ERROR] Check number of categories and materials!")
+						break
+				else:
+					labels = dirs
+					for i in range(params.DATASET_NUMBER_MATERIALS):
+						labels.append(str(i))
 				create_labels = True
+
 			set_ = os.path.basename(root) # train or test
 			#sort for alphabetical iteration
 			for file in sorted(files):
-				if os.path.splitext(file)[1] in globals.DATASET_FORMATS:
+				if os.path.splitext(file)[1] in params.DATASET_FORMATS:
 					label_cat = os.path.basename(os.path.dirname(root))
-					label_mat_id = os.path.splitext(file)[0].split("_")[2]
-					img = cv2.imread(os.path.join(root, file), 1 % globals.IMAGE_CHANNELS)
+					if has_materials:
+						label_mat_id = os.path.splitext(file)[0].split("_")[2]
+					img = cv2.imread(os.path.join(root, file), 1 % params.IMAGE_CHANNELS)
 					if img.dtype == np.uint8:
 						img = img.astype(np.float32)
 						img = img / 255.0
-					if img.shape[0] != globals.IMAGE_SIZE and img.shape[1] != globals.IMAGE_SIZE:
-						img = cv2.resize(img, (globals.IMAGE_SIZE, globals.IMAGE_SIZE), interpolation=cv2.INTER_AREA)
+					if img.shape[0] != params.IMAGE_SIZE and img.shape[1] != params.IMAGE_SIZE:
+						img = cv2.resize(img, (params.IMAGE_SIZE, params.IMAGE_SIZE), interpolation=cv2.INTER_AREA)
 					if set_ == "train":
 						x_train.append(img)
-						if has_materials:
-							y_train.append([labels.index(label_cat), int(label_mat_id) + int(globals.DATASET_NUMBER_CATEGORIES)])
-						else:
+						#add label depending on number of categories and materials
+						if has_categories and has_materials:
+							if params.DATASET_IS_SINGLELABEL:
+								y_train.append(labels.index(label_cat+"_"+label_mat_id))
+							else:
+								y_train.append([labels.index(label_cat), int(label_mat_id) + int(params.DATASET_NUMBER_CATEGORIES)])
+						elif not has_categories and has_materials:
+							y_train.append(int(label_mat_id))
+						elif has_categories and not has_materials:
 							y_train.append(labels.index(label_cat))
 					elif set_ == "test":
 						x_test.append(img)
-						if has_materials:
-							y_test.append([labels.index(label_cat), int(label_mat_id) + int(globals.DATASET_NUMBER_CATEGORIES)])
-						else:
+						if has_categories and has_materials:
+							if params.DATASET_IS_SINGLELABEL:
+								y_test.append(labels.index(label_cat+"_"+label_mat_id))
+							else:
+								y_test.append([labels.index(label_cat), int(label_mat_id) + int(params.DATASET_NUMBER_CATEGORIES)])
+						elif not has_categories and has_materials:
+							y_test.append(int(label_mat_id))
+						elif has_categories and not has_materials:
 							y_test.append(labels.index(label_cat))
 
 		if create_labels:
-			for i in range(globals.DATASET_NUMBER_MATERIALS):
-				labels.append(str(i))
 			self.save_labels(labels)
-
 
 		#one-hot encode labels
 		#don't use tensorflows encoding due to evaluation in session runs
 		if one_hot:
-			if has_materials:
+			if not params.DATASET_IS_SINGLELABEL and has_materials and has_categories:
 				y_test = [np.eye(sum_labels)[i[0]] + np.eye(sum_labels)[i[1]] for i in y_test]
 				y_train = [np.eye(sum_labels)[i[0]] + np.eye(sum_labels)[i[1]] for i in y_train]
+				y_train = np.array(y_train, dtype=np.float32)
+				y_test = np.array(y_test, dtype=np.float32)
 			else:
-				y_test = np.eye(sum_labels)[y_test]
-				y_train = np.eye(sum_labels)[y_train]
-		
-		y_train = np.array(y_train, dtype=np.float32)
-		y_test = np.array(y_test, dtype=np.float32)
+				y_test = np.eye(sum_labels, dtype=np.float32)[y_test]
+				y_train = np.eye(sum_labels, dtype=np.float32)[y_train]
 
-		x_train = np.reshape(x_train, [-1, globals.IMAGE_SIZE, globals.IMAGE_SIZE, globals.IMAGE_CHANNELS])
-		x_test = np.reshape(x_test, [-1, globals.IMAGE_SIZE, globals.IMAGE_SIZE, globals.IMAGE_CHANNELS])
+		x_train = np.reshape(x_train, [-1, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS])
+		x_test = np.reshape(x_test, [-1, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS])
 
 		return x_train, y_train, x_test, y_test
 
-	def single_to_multi_view(self, x_train, y_train, x_test, y_test, n_views=globals.N_VIEWS):
+	def single_to_multi_view(self, x_train, y_train, x_test, y_test, n_views=params.N_VIEWS):
 		"""Convert single views of each object to image with depth of n_views. Labels are compressed by
 		taking each n_views-th element.
 
@@ -92,8 +136,8 @@ class Data(object):
 			x_test: reshaped testing set with views as each object's depth; size [-1, n_views, image_size, image_size, channels]
 			y_test: label of each testing object
 		"""
-		x_train = x_train.reshape([-1, n_views, globals.IMAGE_SIZE, globals.IMAGE_SIZE, globals.IMAGE_CHANNELS])
-		x_test = x_test.reshape([-1, n_views, globals.IMAGE_SIZE, globals.IMAGE_SIZE, globals.IMAGE_CHANNELS])
+		x_train = x_train.reshape([-1, n_views, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS])
+		x_test = x_test.reshape([-1, n_views, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS])
 		y_train = y_train[0::n_views]
 		y_test = y_test[0::n_views]
 		return x_train, y_train, x_test, y_test
@@ -114,12 +158,12 @@ class Data(object):
 
 	def load_labels(self):
 		labels = None
-		if os.path.isfile(globals.DATASET_LABELS_FILE):
-			with open(globals.DATASET_LABELS_FILE, "r") as f:
+		if os.path.isfile(params.DATASET_LABELS_FILE):
+			with open(params.DATASET_LABELS_FILE, "r") as f:
 				labels = [i.rstrip("\n") for i in f]
 		return labels
 
 	def save_labels(self, labels):
-		with open(globals.DATASET_LABELS_FILE, "w") as f:
+		with open(params.DATASET_LABELS_FILE, "w") as f:
 			for i in labels:
 				f.write("%s\n" % i)

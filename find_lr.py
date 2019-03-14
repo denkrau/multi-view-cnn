@@ -3,7 +3,7 @@ import getopt
 import numpy as np
 import matplotlib.pyplot as plt
 import tensorflow as tf
-import globals
+import params
 import data
 import model
 
@@ -19,7 +19,7 @@ model = model.Model()
 data = data.Data()
 
 #get modelnet dataset splitted in training and testing set
-dataset = data.get_dataset(globals.DATASET_PATH, one_hot=True)
+dataset = data.get_dataset(params.DATASET_PATH, one_hot=True)
 if arg_multi:
 	dataset = data.single_to_multi_view(*dataset)
 
@@ -27,10 +27,10 @@ if arg_multi:
 weights, biases = model.get_weights()
 
 if arg_multi:
-	x = tf.placeholder(tf.float32, (None, globals.N_VIEWS, globals.IMAGE_SIZE, globals.IMAGE_SIZE, globals.IMAGE_CHANNELS), name="x")
+	x = tf.placeholder(tf.float32, (None, params.N_VIEWS, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS), name="x")
 else:
-	x = tf.placeholder(tf.float32, (None, globals.IMAGE_SIZE, globals.IMAGE_SIZE, globals.IMAGE_CHANNELS), name="x")
-y = tf.placeholder(tf.float32, (None, globals.N_CLASSES), name="y")
+	x = tf.placeholder(tf.float32, (None, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS), name="x")
+y = tf.placeholder(tf.float32, (None, params.N_CLASSES), name="y")
 
 iter_loss, learning_rates, _, _ = model.train(x, y, dataset, weights, biases, find_lr=True)
 
