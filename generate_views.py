@@ -8,6 +8,7 @@ exec(compile(open(file).read(), "file", 'exec'))
 """
 
 import os
+import collections
 import numpy as np
 import bpy
 
@@ -42,7 +43,49 @@ def register_object_materials(obj, mats):
 	for i in mats:
 		obj.data.materials.append(i)
 
-def get_optimal_face(cam, obj):
+def is_face_visible(face):
+	faces = obj.data.polygons
+	#get coordinates of face vertices and move them slighty in direction of face center for unique vertex distinction
+	vertices_mesh = obj.data.vertices
+	v1 = vertices_mesh[face.vertices[0]].co + 0.05*(face.center - vertices_mesh[face.vertices[0]].co)
+	v2 = vertices_mesh[face.vertices[1]].co + 0.05*(face.center - vertices_mesh[face.vertices[1]].co)
+	v3 = vertices_mesh[face.vertices[2]].co + 0.05*(face.center - vertices_mesh[face.vertices[2]].co)
+	face_coords = [v1, v2, v3]
+
+	#check by ray cast if face vertices are seen by camera
+	#if true a visible face is supposed
+	#this is done for every view
+	cam.location = (0, 0, 0)
+	cam.rotation_euler[0] = 60*3.141/180
+	is_hidden = False
+	is_visible = False
+	for i in range(n_views):
+		cam.rotation_euler[2] = i*camera_steps*3.141/180
+		bpy.ops.view3d.camera_to_view_selected()
+		#apply padding to render by moving camera away along its z-axis
+		cam.location = cam.matrix_world * Vector((0,0,6))
+		number_of_vertex_misses = 0
+		for c in face_coords:
+			#result = [is_hit, hit_location, face_normal, face_id]
+			result = obj.ray_cast(obj.matrix_world.inverted()*cam.location, c-obj.matrix_world.inverted()*cam.location)
+			if result[0]:
+				if faces[result[3]] == face:
+					#face is visible so interrupt further checking
+					is_visible = True
+					break
+			#if face is not visible increment counter
+			number_of_vertex_misses += 1
+		#if whole face is not vissible in current view increment counter
+		if number_of_vertex_misses == len(face_coords):
+			is_hidden = True
+		#if face was at least once seen and at least once hidden in different views return face
+		if is_visible and is_hidden:
+			return True
+
+	return False
+
+
+def get_optimal_face(cam, obj, colors_per_object=1):
 	"""Iterates over all mesh faces to find one that has a decent size and is seen by the camera
 
 		Args:
@@ -59,52 +102,29 @@ def get_optimal_face(cam, obj):
 	faces_area_mean = np.mean([i.area for i in faces])
 	faces_area_max = np.max([i.area for i in faces])
 
-	run = 0
-	while run < len(faces):
-		#get first face whose area is larger than mean
-		for i, f in enumerate(faces[idx:]):
-			if f.area > (faces_area_mean + faces_area_max) * 0.3:
-				face = f
-				idx += i+1
-				break
-		
-		#get coordinates of face vertices and move them slighty in direction of face center for unique vertex distinction
-		vertices_mesh = obj.data.vertices
-		v1 = vertices_mesh[face.vertices[0]].co + 0.05*(face.center - vertices_mesh[face.vertices[0]].co)
-		v2 = vertices_mesh[face.vertices[1]].co + 0.05*(face.center - vertices_mesh[face.vertices[1]].co)
-		v3 = vertices_mesh[face.vertices[2]].co + 0.05*(face.center - vertices_mesh[face.vertices[2]].co)
-		face_coords = [v1, v2, v3]
+	#get first face whose area is larger than mean
+	possible_faces = []
+	face = None
+	for i, f in enumerate(faces):
+		if f.area > (faces_area_mean + faces_area_max) * 0.3:
+			possible_faces.append(f)
+			face = f
 
-		#check by ray cast if face vertices are seen by camera
-		#if true a visible face is supposed
-		#this is done for every view
-		cam.location = (0, 0, 0)
-		cam.rotation_euler[0] = 60*3.141/180
-		is_hidden = False
-		is_visible = False
-		for i in range(n_views):
-			cam.rotation_euler[2] = i*camera_steps*3.141/180
-			bpy.ops.view3d.camera_to_view_selected()
-			#apply padding to render by moving camera away along its z-axis
-			cam.location = cam.matrix_world * Vector((0,0,6))
-			number_of_vertex_misses = 0
-			for c in face_coords:
-				#result = [is_hit, hit_location, face_normal, face_id]
-				result = obj.ray_cast(obj.matrix_world.inverted()*cam.location, c-obj.matrix_world.inverted()*cam.location)
-				if result[0]:
-					if faces[result[3]] == face:
-						#face is visible so interrupt further checking
-						is_visible = True
-						break
-				#if face is not visible increment counter
-				number_of_vertex_misses += 1
-			#if whole face is not vissible in current view increment counter
-			if number_of_vertex_misses == len(face_coords):
-				is_hidden = True
-			#if face was at least once seen and at least once hidden in different views return face
-			if is_visible and is_hidden:
-				return face
-		run += 1
+	#sort by center distance to face in descending order
+	possible_faces = sorted(possible_faces, key=lambda x: np.linalg.norm(x.center-face.center), reverse=True)
+	faces_to_color = []
+
+	for face in possible_faces:
+		if is_face_visible(face):
+			faces_to_color.append(get_identical_faces(face))
+			if colors_per_object > 1:
+				possible_faces = sorted(possible_faces, key=lambda x: np.linalg.norm(x.center-face.center), reverse=True)
+				for face2 in possible_faces[:-1]:
+					if is_face_visible(face2):
+						faces_to_color.append(get_identical_faces(face2))
+						return faces_to_color
+			else:
+				return faces_to_color
 	return None
 
 def get_identical_faces(face):
@@ -140,13 +160,15 @@ n_views = 12
 camera_steps = 360/n_views
 n_train_objects = 80
 n_test_objects = 20
+colors_per_object = 1
+n_materials = 2
 
 # define paths
 input = "D:\\Downloads\\Web\\ModelNet10"
-output = "D:\\Downloads\\Web\\ModelNet10viewsDEBUG"
+output = "D:\\Downloads\\Web\\ModelNet10views"
 
 # define each material and color
-materials = {"green": (0,255,0), "red": (255,0,0)}
+materials = collections.OrderedDict([("green", (0,255,0)), ("red", (255,0,0)), ("orange", (255,165,0)), ("blue", (0,0,255))])
 
 #delete default cube
 if "Cube" in bpy.data.objects:
@@ -184,9 +206,8 @@ for root, dirs, files in os.walk(input):
 			bpy.ops.object.origin_set(type="ORIGIN_CENTER_OF_MASS")
 			obj = bpy.data.objects[os.path.splitext(file)[0]]
 			register_object_materials(obj, mats)
-			face = get_optimal_face(cam, obj)
-			if face is not None:
-				identical_faces = get_identical_faces(face)
+			faces_to_color = get_optimal_face(cam, obj, colors_per_object=colors_per_object)
+			if faces_to_color is not None:
 				n_objects += 1
 				if type == "train":
 					if n_objects > n_train_objects:
@@ -202,10 +223,10 @@ for root, dirs, files in os.walk(input):
 						obj.select = True
 						bpy.ops.object.delete()
 						break
-				for j in range(len(materials)):
-					#if j > 0:
-					for face in identical_faces:
-						face.material_index = j+1
+				for j in range(n_materials):
+					for f, faces in enumerate(faces_to_color):
+						for face in faces:
+							face.material_index = j*len(faces_to_color)+1+f
 					# position camera for first view
 					bpy.data.objects["Camera"].location = (0, 0, 0)
 					bpy.data.objects["Camera"].rotation_euler[0] = 60*3.141/180
