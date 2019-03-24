@@ -8,13 +8,12 @@ import matplotlib.pyplot as plt
 
 class Data(object):
 
-	def get_dataset(self, path, one_hot=None):
+	def get_dataset(self, path, one_hot=None, create_labels=False):
 		#create lists to store training and test data
 		x_train = []
 		y_train = []
 		x_test = []
 		y_test = []
-		create_labels = False
 		has_materials = True if params.DATASET_NUMBER_MATERIALS > 0 else False
 		has_categories = True if params.DATASET_NUMBER_CATEGORIES > 0 else False
 		n_labels = params.get_number_labels()
@@ -158,3 +157,15 @@ class Data(object):
 		with open(params.DATASET_LABELS_FILE, "w") as f:
 			for i in labels:
 				f.write("%s\n" % i)
+
+	def get_amount_objects_per_category(self):
+		n_objects_train = []
+		n_objects_test = []
+		for root, dirs, files in os.walk(params.DATASET_PATH):
+			set_ = os.path.basename(root)
+			if set_ == "test":
+				n_objects_test.append(int(len(files)/params.N_VIEWS))
+			elif set_ == "train":
+				n_objects_train.append(int(len(files)/params.N_VIEWS))
+
+		return n_objects_train, n_objects_test

@@ -53,20 +53,21 @@ class Model(object):
 		Returns:
 			fc3: input membership to classes, i.e. predicted classes
 		"""
+		with tf.name_scope("dropout"):
+			dropout_prob = tf.placeholder_with_default(0.0, ())
 		with tf.name_scope("fc1"):
 			fc1 = tf.reshape(x, [-1, weights['wd1'].get_shape().as_list()[0]])
 			fc1 = tf.add(tf.matmul(fc1, weights['wd1']), biases['bd1'])
 			fc1 = tf.nn.relu(fc1) #(1, 4096)
-			#fc1 = tf.nn.dropout(fc1, 1-dropout_prob)
+			fc1 = tf.nn.dropout(fc1, keep_prob=1-dropout_prob)
 		with tf.name_scope("fc2"):
 			fc2 = tf.reshape(fc1, [-1, weights['wd2'].get_shape().as_list()[0]])
 			fc2 = tf.add(tf.matmul(fc2, weights['wd2']), biases['bd2'])
 			fc2 = tf.nn.relu(fc2) #(1, 4096)
-			#fc2 = tf.nn.dropout(fc2, 1-dropout_prob)
+			fc2 = tf.nn.dropout(fc2, keep_prob=1-dropout_prob)
 		with tf.name_scope("fc3"):
 			#fc3 = tf.reshape(fc2, [-1, weights['wd3'].get_shape().as_list()[0]])
 			fc3 = tf.add(tf.matmul(fc2, weights['wd3']), biases['bd3']) #(1,n_classes)
-			#fc3 = tf.nn.softmax(fc3)
 
 		return fc3
 
@@ -139,6 +140,8 @@ class Model(object):
 		"""
 		x_train, y_train, x_test, y_test = dataset
 		is_multi_view = False
+		with tf.name_scope("dropout"):
+			dropout_prob = tf.placeholder_with_default(0.0, ())
 		# if shape of x placeholder relates to n_views dimension a multi-view input is supposed
 		if x.shape[1] == params.N_VIEWS:
 			is_multi_view = True
@@ -220,10 +223,10 @@ class Model(object):
 					if is_multi_view:
 						if params.USE_SUMMARY:
 							#summary, opt, scores, descr = sess.run([merged, optimizer, view_discrimination_scores, view_descriptors], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
-							summary, opt, scores, descr = sess.run([merged, optimizer, view_discrimination_scores, view_descriptors], feed_dict={x: batch_x, y: batch_y})
+							summary, opt, scores, descr = sess.run([merged, optimizer, view_discrimination_scores, view_descriptors], feed_dict={x: batch_x, y: batch_y, dropout_prob: params.DROPOUT_PROB})
 						else:
 							#opt = sess.run([optimizer], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
-							opt, s = sess.run([optimizer,view_discrimination_scores], feed_dict={x: batch_x, y: batch_y})
+							opt, s = sess.run([optimizer,view_discrimination_scores], feed_dict={x: batch_x, y: batch_y, dropout_prob: params.DROPOUT_PROB})
 						#loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
 						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y})
 						if params.USE_SUMMARY:
@@ -231,7 +234,7 @@ class Model(object):
 
 					else:
 						#opt = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
-						opt = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y})
+						opt = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, dropout_prob: params.DROPOUT_PROB})
 						#loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
 						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y})
 
@@ -280,18 +283,21 @@ class Model(object):
 
 		return train_loss, learning_rates, train_accuracy, test_accuracy
 
-	def predict(self, img, y=None, n_views=params.N_VIEWS, ckpt_file=None):
+	def predict(self, img, labels=None, n_views=params.N_VIEWS, ckpt_file=None):
 		weights, biases = self.get_weights()
 		is_multi_view = None
-		saliency = None
-		groups = None
-		view_scores = None
-		group_ids = None
-		group_weights = None
+		saliencies = []
+		groups = []
+		view_scores = []
+		group_ids = []
+		group_weights = []
+		correct_predictions = []
+		classifications = []
 		
 		#if multi view object is given
 		if img.shape[1] == n_views:
 			is_multi_view = True
+			batch_size = params.BATCH_SIZE_MULTI
 			x = tf.placeholder(tf.float32, [None, n_views, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS], name="x")
 
 			with tf.name_scope("view_descriptors_and_scores"):
@@ -310,6 +316,7 @@ class Model(object):
 					pred = tf.nn.sigmoid(pred)
 		else:
 			is_multi_view = False
+			batch_size = params.BATCH_SIZE_SINGLE
 			# feed input to connected cnn
 			x = tf.placeholder(tf.float32, [None, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS], name="x")
 			pred = self.cnn_convs(x, weights, biases)
@@ -317,19 +324,49 @@ class Model(object):
 			pred = tf.nn.softmax(pred)
 			saliency = tf.gradients(pred, x)
 
+		y = tf.placeholder(tf.float32, [None, params.N_CLASSES])
+		correct_prediction = None
+		if labels is not None:
+			if params.DATASET_IS_SINGLELABEL:
+				correct_prediction = tf.equal(tf.argmax(pred, 1), tf.argmax(y, 1))
+			else:
+				correct_prediction = tf.equal(tf.round(tf.sigmoid(pred)), y)
+
 		saver = tf.train.Saver()
 		if ckpt_file is None:
 			ckpt_file = os.path.join(params.CKPT_PATH, params.CKPT_FILE)
 
 		with tf.Session() as sess:
 			saver.restore(sess, ckpt_file)
-			classification = sess.run(pred, feed_dict={x: img})
-			if is_multi_view:
-				group_ids, group_weights, view_scores = sess.run([batch_group_idx, batch_group_weights, view_discrimination_scores], feed_dict={x: img})
-			else:
-				saliency = sess.run(saliency, feed_dict={x: img})
 
-		return classification, saliency, view_scores, group_ids, group_weights
+			for batch in range(max(img.shape[0]//batch_size, 1)):
+				batch_x = img[batch*batch_size:min((batch+1)*batch_size,img.shape[0])]
+				classification = sess.run(pred, feed_dict={x: batch_x})
+				classifications.append(classification)
+
+				if labels is not None:
+					batch_y = labels[batch*batch_size:min((batch+1)*batch_size,labels.shape[0])]
+					is_correct = sess.run(correct_prediction, feed_dict={x: batch_x, y: batch_y})
+					correct_predictions.append(is_correct)
+
+				if is_multi_view:
+					g_ids, g_weights, v_scores = sess.run([batch_group_idx, batch_group_weights, view_discrimination_scores], feed_dict={x: batch_x})
+					group_ids.append(g_ids)
+					group_weights.append(g_weights)
+					view_scores.append(v_scores)
+				else:
+					saliency = sess.run(saliency, feed_dict={x: batch_x})
+					saliencies.append(saliency)
+			
+			saliencies = np.reshape(saliencies, [-1, params.IMAGE_SIZE, params.IMAGE_SIZE])
+			groups =  np.reshape(groups, [-1, params.N_VIEWS])
+			view_scores =  np.reshape(view_scores, [-1, params.N_VIEWS])
+			group_ids =  np.reshape(group_ids, [-1, params.N_VIEWS])
+			group_weights =  np.reshape(group_weights, [-1, params.N_VIEWS])
+			correct_predictions =  np.reshape(correct_predictions, [-1])
+			classifications =  np.reshape(classifications, [-1, params.N_CLASSES])
+			
+		return classifications, saliencies, view_scores, group_ids, group_weights, correct_predictions
 
 	def get_weights(self):
 		with tf.variable_scope("cnn", reuse=tf.AUTO_REUSE):
@@ -401,17 +438,19 @@ class Model(object):
 		"""
 		shape_descriptors = []
 		weights, biases = self.get_weights()
+		with tf.name_scope("dropout"):
+			dropout_prob = tf.placeholder_with_default(0.0, ())
 		#get the shape descriptor i.e. the output of fc7 of every group descriptor
 		for i in tf.split(group_descriptors, num_or_size_splits=params.N_VIEWS, axis=0):
 			fc1 = tf.reshape(i, [-1, weights['wd1'].get_shape().as_list()[0]])
 			fc1 = tf.add(tf.matmul(fc1, weights['wd1']), biases['bd1'])
 			fc1 = tf.nn.relu(fc1)
-			#fc1 = tf.nn.dropout(fc1, 1-dropout_prob)
+			fc1 = tf.nn.dropout(fc1, keep_prob=1-dropout_prob)
 
 			fc2 = tf.reshape(fc1, [-1, weights['wd2'].get_shape().as_list()[0]])
 			fc2 = tf.add(tf.matmul(fc2, weights['wd2']), biases['bd2'])
 			fc2 = tf.nn.relu(fc2)
-			#fc2 = tf.nn.dropout(fc2, 1-dropout_prob)
+			fc2 = tf.nn.dropout(fc2, keep_prob=1-dropout_prob)
 
 			shape_descriptors.append(fc2)
 
