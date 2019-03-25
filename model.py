@@ -41,7 +41,7 @@ class Model(object):
 			conv5 = self.max_pool2d(conv5, size=3, strides=2, padding="VALID") #(1, 6, 6, 512)
 		return conv5
 
-	def cnn_fcs(self, x, weights, biases):
+	def cnn_fcs(self, x, weights, biases, dropout_prob):
 		"""Applies three fully connected layer operations to input
 		according to vgg-m architecture.
 
@@ -49,6 +49,7 @@ class Model(object):
 			x: input (output of conv5)
 			weights: weights of filter
 			biases: biases of layers
+			dropout_prob: identical dropout probabilities; shape [-1, 1]
 
 		Returns:
 			fc3: input membership to classes, i.e. predicted classes
@@ -59,19 +60,19 @@ class Model(object):
 			fc1 = tf.reshape(x, [-1, weights['wd1'].get_shape().as_list()[0]])
 			fc1 = tf.add(tf.matmul(fc1, weights['wd1']), biases['bd1'])
 			fc1 = tf.nn.relu(fc1) #(1, 4096)
-			fc1 = tf.nn.dropout(fc1, keep_prob=1-dropout_prob)
+			fc1 = tf.nn.dropout(fc1, keep_prob=1-dropout_prob[0][0])
 		with tf.name_scope("fc2"):
 			fc2 = tf.reshape(fc1, [-1, weights['wd2'].get_shape().as_list()[0]])
 			fc2 = tf.add(tf.matmul(fc2, weights['wd2']), biases['bd2'])
 			fc2 = tf.nn.relu(fc2) #(1, 4096)
-			fc2 = tf.nn.dropout(fc2, keep_prob=1-dropout_prob)
+			fc2 = tf.nn.dropout(fc2, keep_prob=1-dropout_prob[0][0])
 		with tf.name_scope("fc3"):
 			#fc3 = tf.reshape(fc2, [-1, weights['wd3'].get_shape().as_list()[0]])
 			fc3 = tf.add(tf.matmul(fc2, weights['wd3']), biases['bd3']) #(1,n_classes)
 
 		return fc3
 
-	def cnn_fcs_grouping(self, group_descriptors, group_weights, weights, biases):
+	def cnn_fcs_grouping(self, group_descriptors, group_weights, weights, biases, dropout_prob):
 		"""Classifies each batch element object from views by taking group descriptors of whole batch as input.
 
 		Args:
@@ -81,11 +82,12 @@ class Model(object):
 			group_weights: weight of each group; shape [-1, views]
 			weights: model weights
 			biases: model biases
+			dropout_prob: identical dropout probilities; shape [-1, 1]
 
 		Returns:
 			fc3: predicted classification of object or views, respectively; shape [-1, 1, n_classes]
 		"""
-		shape_descriptors = tf.map_fn(self.get_shape_descriptors, group_descriptors)
+		shape_descriptors = tf.map_fn(self.get_shape_descriptors, [group_descriptors, dropout_prob], dtype=tf.float32)
 		shape_descriptors = tf.reshape(shape_descriptors, [-1, params.N_VIEWS, weights["wd2"].get_shape().as_list()[0]])
 
 		#make tensors ready for single shape descriptor calculation
@@ -106,13 +108,14 @@ class Model(object):
 		
 		return fc3
 
-	def cnn_grouping(self, x, weights, biases):
+	def cnn_grouping(self, x, weights, biases, dropout_prob):
 		"""Calculates the view discrimination score of a view.
 
 		Args:
 			x: view descriptor as input; shape [1, 6, 6, 512]
 			weights: weights of cnn
 			biases: biases of cnn
+			dropout_prob: list of dropout probability;
 
 		Returns:
 			fc1: view discrimination score of input view
@@ -121,7 +124,7 @@ class Model(object):
 			fc1 = tf.reshape(x, [-1, weights['wd4'].get_shape().as_list()[0]])
 			fc1 = tf.add(tf.matmul(fc1, weights['wd4']), biases['bd4'])
 			fc1 = tf.nn.leaky_relu(fc1)
-			#fc1 = tf.nn.dropout(fc1, 0.5)
+			fc1 = tf.nn.dropout(fc1, 1-dropout_prob[0])
 			#add constant to avoid log(0) and therefore NaNs in cost function
 			fc1 = tf.sigmoid(tf.log(tf.abs(fc1)+tf.constant(0.000001)), name="view_discr_score")
 		return fc1
@@ -140,16 +143,15 @@ class Model(object):
 		"""
 		x_train, y_train, x_test, y_test = dataset
 		is_multi_view = False
-		with tf.name_scope("dropout"):
-			dropout_prob = tf.placeholder_with_default(0.0, ())
 		# if shape of x placeholder relates to n_views dimension a multi-view input is supposed
 		if x.shape[1] == params.N_VIEWS:
 			is_multi_view = True
 			batch_size = params.BATCH_SIZE_MULTI
+			dropout_prob = tf.placeholder_with_default(np.zeros([batch_size, 1], dtype=np.float32), shape=(None, 1), name="dropout_prob")
 			# feed each batch element of input in first part of cnn (conv layers) to get view descriptors and scores of each channel, i.e. view
 			# view_descriptors = [-1, n_views, 1, 6, 6, 512], view_discrimination_scores = [-1, n_views, 1, 1] -> [-1, n_views]
 			with tf.name_scope("view_descriptors_and_scores"):
-				view_descriptors, view_discrimination_scores = tf.map_fn(self.get_view_descriptors_and_scores, x, dtype=(tf.float32, tf.float32))
+				view_descriptors, view_discrimination_scores = tf.map_fn(self.get_view_descriptors_and_scores, [x, dropout_prob], dtype=(tf.float32, tf.float32))
 				if params.USE_SUMMARY:
 					tf.summary.histogram("view_descriptors", view_descriptors)
 					tf.summary.histogram("view_scores", view_discrimination_scores)
@@ -161,12 +163,13 @@ class Model(object):
 
 			with tf.name_scope("grouping"):
 				batch_group_descriptors = tf.map_fn(self.grouping.get_group_descriptors, [batch_group_idx, view_descriptors], dtype=tf.float32)
-				pred = self.cnn_fcs_grouping(batch_group_descriptors, batch_group_weights, weights, biases)
+				pred = self.cnn_fcs_grouping(batch_group_descriptors, batch_group_weights, weights, biases, dropout_prob)
 		else:
 			batch_size = params.BATCH_SIZE_SINGLE
+			dropout_prob = tf.placeholder_with_default(np.ones([batch_size, 1], dtype=np.float32), shape=(None,1), name="dropout_prob")
 			# feed input to connected cnn
 			pred = self.cnn_convs(x, weights, biases)
-			pred = self.cnn_fcs(pred, weights, biases)
+			pred = self.cnn_fcs(pred, weights, biases, dropout_prob)
 
 		#sigmoid for multi-label, softmax for single-label
 		if params.DATASET_IS_SINGLELABEL:
@@ -199,6 +202,7 @@ class Model(object):
 
 			train_loss = []
 			learning_rates = []
+			dropout_prob_value = np.full([batch_size, 1], params.DROPOUT_PROB)
 
 			for i in range(params.TRAINING_EPOCHS if find_lr is None else 100):
 				x_train, y_train = self.data.shuffle(x_train, y_train)
@@ -219,14 +223,13 @@ class Model(object):
 					#learning_rates.append(lr)
 					# Run optimization op (backprop).
 					    # Calculate batch loss and accuracy
-
 					if is_multi_view:
 						if params.USE_SUMMARY:
 							#summary, opt, scores, descr = sess.run([merged, optimizer, view_discrimination_scores, view_descriptors], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
-							summary, opt, scores, descr = sess.run([merged, optimizer, view_discrimination_scores, view_descriptors], feed_dict={x: batch_x, y: batch_y, dropout_prob: params.DROPOUT_PROB})
+							summary, opt, scores, descr = sess.run([merged, optimizer, view_discrimination_scores, view_descriptors], feed_dict={x: batch_x, y: batch_y, dropout_prob: dropout_prob_value})
 						else:
 							#opt = sess.run([optimizer], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
-							opt, s = sess.run([optimizer,view_discrimination_scores], feed_dict={x: batch_x, y: batch_y, dropout_prob: params.DROPOUT_PROB})
+							opt, s = sess.run([optimizer,view_discrimination_scores], feed_dict={x: batch_x, y: batch_y, dropout_prob: dropout_prob_value})
 						#loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
 						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y})
 						if params.USE_SUMMARY:
@@ -234,7 +237,7 @@ class Model(object):
 
 					else:
 						#opt = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
-						opt = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, dropout_prob: params.DROPOUT_PROB})
+						opt = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, dropout_prob: dropout_prob_value})
 						#loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
 						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y})
 
@@ -299,9 +302,10 @@ class Model(object):
 			is_multi_view = True
 			batch_size = params.BATCH_SIZE_MULTI
 			x = tf.placeholder(tf.float32, [None, n_views, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS], name="x")
+			dropout_prob = tf.placeholder_with_default(np.zeros([np.minimum(batch_size, img.shape[0]), 1], dtype=np.float32), shape=(None, 1), name="dropout_prob")
 
 			with tf.name_scope("view_descriptors_and_scores"):
-				view_descriptors, view_discrimination_scores = tf.map_fn(self.get_view_descriptors_and_scores, x, dtype=(tf.float32, tf.float32))
+				view_descriptors, view_discrimination_scores = tf.map_fn(self.get_view_descriptors_and_scores, [x, dropout_prob], dtype=(tf.float32, tf.float32))
 				view_discrimination_scores = tf.reshape(view_discrimination_scores, [-1, params.N_VIEWS])
 
 			with tf.name_scope("group_weights"):
@@ -309,7 +313,7 @@ class Model(object):
 
 			with tf.name_scope("grouping"):
 				batch_group_descriptors = tf.map_fn(self.grouping.get_group_descriptors, [batch_group_idx, view_descriptors], dtype=tf.float32)
-				pred = self.cnn_fcs_grouping(batch_group_descriptors, batch_group_weights, weights, biases)
+				pred = self.cnn_fcs_grouping(batch_group_descriptors, batch_group_weights, weights, biases, dropout_prob)
 				if params.DATASET_IS_SINGLELABEL:
 					pred = tf.nn.softmax(pred)
 				else:
@@ -317,10 +321,11 @@ class Model(object):
 		else:
 			is_multi_view = False
 			batch_size = params.BATCH_SIZE_SINGLE
+			dropout_prob = tf.placeholder_with_default(np.zeros([np.minimum(batch_size, img.shape[0]), 1], dtype=np.float32), shape=(None, 1), name="dropout_prob")
 			# feed input to connected cnn
 			x = tf.placeholder(tf.float32, [None, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS], name="x")
 			pred = self.cnn_convs(x, weights, biases)
-			pred = self.cnn_fcs(pred, weights, biases)
+			pred = self.cnn_fcs(pred, weights, biases, dropout_prob)
 			pred = tf.nn.softmax(pred)
 			saliency = tf.gradients(pred, x)
 
@@ -400,11 +405,12 @@ class Model(object):
 				}
 		return weights, biases
 
-	def get_view_descriptors_and_scores(self, x):
+	def get_view_descriptors_and_scores(self, x_and_dropout_prob):
 		"""Calculates view descriptors and view scores of each view. This is called for each batch element.
 
 		Args:
-			x: placeholder for input values; shape [n_views, image_size, image_size, 1]
+			x_and_dropout_prob: tuple containing placeholder for input values; shape [n_views, image_size, image_size, 1]
+				and dropout probability; shape [1]
 
 		Returns:
 			view_descriptors: view descriptors of batch element for all views; shape [n_views, 1, 6, 6, 512]
@@ -413,23 +419,24 @@ class Model(object):
 		"""
 		view_descriptors = [] #n_views * [1, 6, 6, 512]
 		view_discrimination_scores = [] #n_views * [1, 1]
+		x, dropout_prob = x_and_dropout_prob
 		weights, biases = self.get_weights()
 		#split across views to get list of tensors of each view
 		views = tf.split(x, num_or_size_splits=params.N_VIEWS, axis=0) #n_views * [1, image_size, image_size, 1]
 		for i in views:
 			view_descriptor = self.cnn_convs(i, weights, biases)
 			view_descriptors.append(view_descriptor)
-			view_discrimination_score = self.cnn_grouping(view_descriptor, weights, biases)
+			view_discrimination_score = self.cnn_grouping(view_descriptor, weights, biases, dropout_prob)
 			view_discrimination_scores.append(view_discrimination_score)
 		return tf.convert_to_tensor(view_descriptors), tf.convert_to_tensor(view_discrimination_scores)
 
-	def get_shape_descriptors(self, group_descriptors):
+	def get_shape_descriptors(self, group_descriptors_and_dropout_prob):
 		"""Generates shape descriptors from a given batch element containing group descriptors. This is called
 		for every batch element.
 
 	  	Args:
-	   		group_descriptors: pooled results of view descriptors divided in groups;
-	   						   shape [n_views, 1, 6, 6, 512]
+	   		group_descriptors_and_dropout_prob: tuple containing pooled results of view descriptors divided in groups;
+	   						   shape [n_views, 1, 6, 6, 512] and list of dropout probability; shape [1]
 
 	   	Returns:
 			shape_descriptors: shape descriptor after fc7 of each group, for simplicity it is
@@ -438,19 +445,18 @@ class Model(object):
 		"""
 		shape_descriptors = []
 		weights, biases = self.get_weights()
-		with tf.name_scope("dropout"):
-			dropout_prob = tf.placeholder_with_default(0.0, ())
+		group_descriptors, dropout_prob = group_descriptors_and_dropout_prob
 		#get the shape descriptor i.e. the output of fc7 of every group descriptor
 		for i in tf.split(group_descriptors, num_or_size_splits=params.N_VIEWS, axis=0):
 			fc1 = tf.reshape(i, [-1, weights['wd1'].get_shape().as_list()[0]])
 			fc1 = tf.add(tf.matmul(fc1, weights['wd1']), biases['bd1'])
 			fc1 = tf.nn.relu(fc1)
-			fc1 = tf.nn.dropout(fc1, keep_prob=1-dropout_prob)
+			fc1 = tf.nn.dropout(fc1, keep_prob=1-dropout_prob[0])
 
 			fc2 = tf.reshape(fc1, [-1, weights['wd2'].get_shape().as_list()[0]])
 			fc2 = tf.add(tf.matmul(fc2, weights['wd2']), biases['bd2'])
 			fc2 = tf.nn.relu(fc2)
-			fc2 = tf.nn.dropout(fc2, keep_prob=1-dropout_prob)
+			fc2 = tf.nn.dropout(fc2, keep_prob=1-dropout_prob[0])
 
 			shape_descriptors.append(fc2)
 
