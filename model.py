@@ -26,20 +26,25 @@ class Model(object):
 		"""
 		with tf.name_scope("conv1"):
 			conv1 = self.conv2d(x, weights['wc1'], biases['bc1'], strides=2, padding="VALID") #(1, 109, 109, 96)
+			activations = conv1
 			conv1 = self.max_pool2d(conv1, size=3, strides=2, padding="VALID") #(1, 54, 54, 96)
 		with tf.name_scope("conv2"):
 			conv2 = self.conv2d(conv1, weights['wc2'], biases['bc2'], strides=2, padding="SAME") #(1, 27, 27, 256)
+			#activations = conv2
 			conv2 = self.max_pool2d(conv2, size=3, strides=2, padding="VALID") #(1, 13, 13, 256)
 		with tf.name_scope("conv3"):
 			conv3 = self.conv2d(conv2, weights['wc3'], biases['bc3'], strides=1, padding="SAME") #(1, 13, 13, 512)
+			#activations = conv3
 			#conv3 = max_pool2d(conv3, size=3) #
 		with tf.name_scope("conv4"):
 			conv4 = self.conv2d(conv3, weights['wc4'], biases['bc4'], strides=1, padding="SAME") #(1, 13, 13, 512)
+			#activations = conv4
 			#conv4 = max_pool2d(conv4, size=3) #
 		with tf.name_scope("conv5"):
 			conv5 = self.conv2d(conv4, weights['wc5'], biases['bc5'], strides=1, padding="SAME") #(1, 13, 13, 512)
+			#activations = conv5
 			conv5 = self.max_pool2d(conv5, size=3, strides=2, padding="VALID") #(1, 6, 6, 512)
-		return conv5
+		return conv5, activations
 
 	def cnn_fcs(self, x, weights, biases, dropout_prob):
 		"""Applies three fully connected layer operations to input
@@ -54,8 +59,6 @@ class Model(object):
 		Returns:
 			fc3: input membership to classes, i.e. predicted classes
 		"""
-		with tf.name_scope("dropout"):
-			dropout_prob = tf.placeholder_with_default(0.0, ())
 		with tf.name_scope("fc1"):
 			fc1 = tf.reshape(x, [-1, weights['wd1'].get_shape().as_list()[0]])
 			fc1 = tf.add(tf.matmul(fc1, weights['wd1']), biases['bd1'])
@@ -151,7 +154,7 @@ class Model(object):
 			# feed each batch element of input in first part of cnn (conv layers) to get view descriptors and scores of each channel, i.e. view
 			# view_descriptors = [-1, n_views, 1, 6, 6, 512], view_discrimination_scores = [-1, n_views, 1, 1] -> [-1, n_views]
 			with tf.name_scope("view_descriptors_and_scores"):
-				view_descriptors, view_discrimination_scores = tf.map_fn(self.get_view_descriptors_and_scores, [x, dropout_prob], dtype=(tf.float32, tf.float32))
+				view_descriptors, view_discrimination_scores, activations_convs = tf.map_fn(self.get_view_descriptors_and_scores, [x, dropout_prob], dtype=(tf.float32, tf.float32, tf.float32))
 				if params.USE_SUMMARY:
 					tf.summary.histogram("view_descriptors", view_descriptors)
 					tf.summary.histogram("view_scores", view_discrimination_scores)
@@ -163,6 +166,8 @@ class Model(object):
 
 			with tf.name_scope("grouping"):
 				batch_group_descriptors = tf.map_fn(self.grouping.get_group_descriptors, [batch_group_idx, view_descriptors], dtype=tf.float32)
+
+			with tf.name_scope("fully-connected"):
 				pred = self.cnn_fcs_grouping(batch_group_descriptors, batch_group_weights, weights, biases, dropout_prob)
 		else:
 			batch_size = params.BATCH_SIZE_SINGLE
@@ -296,6 +301,7 @@ class Model(object):
 		group_weights = []
 		correct_predictions = []
 		classifications = []
+		acts_convs = []
 		
 		#if multi view object is given
 		if img.shape[1] == n_views:
@@ -305,8 +311,8 @@ class Model(object):
 			dropout_prob = tf.placeholder_with_default(np.zeros([np.minimum(batch_size, img.shape[0]), 1], dtype=np.float32), shape=(None, 1), name="dropout_prob")
 
 			with tf.name_scope("view_descriptors_and_scores"):
-				view_descriptors, view_discrimination_scores = tf.map_fn(self.get_view_descriptors_and_scores, [x, dropout_prob], dtype=(tf.float32, tf.float32))
-				view_discrimination_scores = tf.reshape(view_discrimination_scores, [-1, params.N_VIEWS])
+				view_descriptors, view_discrimination_scores, activations_convs = tf.map_fn(self.get_view_descriptors_and_scores, [x, dropout_prob], dtype=(tf.float32, tf.float32, tf.float32))
+				view_discrimination_scores = tf.reshape(view_discrimination_scores, [-1, n_views])
 
 			with tf.name_scope("group_weights"):
 				batch_group_idx, batch_group_weights = tf.map_fn(self.grouping.get_group_weights, view_discrimination_scores, dtype=(tf.int32, tf.float32))
@@ -314,23 +320,26 @@ class Model(object):
 			with tf.name_scope("grouping"):
 				batch_group_descriptors = tf.map_fn(self.grouping.get_group_descriptors, [batch_group_idx, view_descriptors], dtype=tf.float32)
 				pred = self.cnn_fcs_grouping(batch_group_descriptors, batch_group_weights, weights, biases, dropout_prob)
+
+			with tf.name_scope("fully-connected"):
+				saliency = tf.gradients(pred, x)
 				if params.DATASET_IS_SINGLELABEL:
 					pred = tf.nn.softmax(pred)
 				else:
 					pred = tf.nn.sigmoid(pred)
+
 		else:
 			is_multi_view = False
 			batch_size = params.BATCH_SIZE_SINGLE
 			dropout_prob = tf.placeholder_with_default(np.zeros([np.minimum(batch_size, img.shape[0]), 1], dtype=np.float32), shape=(None, 1), name="dropout_prob")
 			# feed input to connected cnn
 			x = tf.placeholder(tf.float32, [None, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS], name="x")
-			pred = self.cnn_convs(x, weights, biases)
+			pred, activations_convs = self.cnn_convs(x, weights, biases)
 			pred = self.cnn_fcs(pred, weights, biases, dropout_prob)
-			pred = tf.nn.softmax(pred)
 			saliency = tf.gradients(pred, x)
+			pred = tf.nn.softmax(pred)
 
 		y = tf.placeholder(tf.float32, [None, params.N_CLASSES])
-		correct_prediction = None
 		if labels is not None:
 			if params.DATASET_IS_SINGLELABEL:
 				correct_prediction = tf.equal(tf.argmax(pred, 1), tf.argmax(y, 1))
@@ -348,30 +357,31 @@ class Model(object):
 				batch_x = img[batch*batch_size:min((batch+1)*batch_size,img.shape[0])]
 				classification = sess.run(pred, feed_dict={x: batch_x})
 				classifications.append(classification)
-
 				if labels is not None:
 					batch_y = labels[batch*batch_size:min((batch+1)*batch_size,labels.shape[0])]
 					is_correct = sess.run(correct_prediction, feed_dict={x: batch_x, y: batch_y})
-					correct_predictions.append(is_correct)
+				else:
+					is_correct = [None]*img.shape[0]
+				correct_predictions.append(is_correct)
 
 				if is_multi_view:
-					g_ids, g_weights, v_scores = sess.run([batch_group_idx, batch_group_weights, view_discrimination_scores], feed_dict={x: batch_x})
+					g_ids, g_weights, v_scores, act_convs, sal = sess.run([batch_group_idx, batch_group_weights, view_discrimination_scores, activations_convs, saliency], feed_dict={x: batch_x})
 					group_ids.append(g_ids)
 					group_weights.append(g_weights)
 					view_scores.append(v_scores)
-				else:
-					saliency = sess.run(saliency, feed_dict={x: batch_x})
-					saliencies.append(saliency)
+					acts_convs.append(act_convs)
+					saliencies.append(sal)
 			
-			saliencies = np.reshape(saliencies, [-1, params.IMAGE_SIZE, params.IMAGE_SIZE])
-			groups =  np.reshape(groups, [-1, params.N_VIEWS])
-			view_scores =  np.reshape(view_scores, [-1, params.N_VIEWS])
-			group_ids =  np.reshape(group_ids, [-1, params.N_VIEWS])
-			group_weights =  np.reshape(group_weights, [-1, params.N_VIEWS])
+			saliencies = np.reshape(saliencies, [-1, n_views, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS])
+			groups =  np.reshape(groups, [-1, n_views])
+			view_scores =  np.reshape(view_scores, [-1, n_views])
+			group_ids =  np.reshape(group_ids, [-1, n_views])
+			group_weights =  np.reshape(group_weights, [-1, n_views])
 			correct_predictions =  np.reshape(correct_predictions, [-1])
-			classifications =  np.reshape(classifications, [-1, params.N_CLASSES])
-			
-		return classifications, saliencies, view_scores, group_ids, group_weights, correct_predictions
+			classifications =  np.reshape(classifications, [-1, n_views])
+			acts_convs = np.reshape(acts_convs,  acts_convs[0].shape)
+
+		return classifications, saliencies, view_scores, group_ids, group_weights, correct_predictions, acts_convs
 
 	def get_weights(self):
 		with tf.variable_scope("cnn", reuse=tf.AUTO_REUSE):
@@ -419,16 +429,18 @@ class Model(object):
 		"""
 		view_descriptors = [] #n_views * [1, 6, 6, 512]
 		view_discrimination_scores = [] #n_views * [1, 1]
+		activations_convs = [] #n_views * [conv_shape]
 		x, dropout_prob = x_and_dropout_prob
 		weights, biases = self.get_weights()
 		#split across views to get list of tensors of each view
 		views = tf.split(x, num_or_size_splits=params.N_VIEWS, axis=0) #n_views * [1, image_size, image_size, 1]
 		for i in views:
-			view_descriptor = self.cnn_convs(i, weights, biases)
+			view_descriptor, activations = self.cnn_convs(i, weights, biases)
+			activations_convs.append(activations)
 			view_descriptors.append(view_descriptor)
 			view_discrimination_score = self.cnn_grouping(view_descriptor, weights, biases, dropout_prob)
 			view_discrimination_scores.append(view_discrimination_score)
-		return tf.convert_to_tensor(view_descriptors), tf.convert_to_tensor(view_discrimination_scores)
+		return tf.convert_to_tensor(view_descriptors), tf.convert_to_tensor(view_discrimination_scores), tf.convert_to_tensor(activations_convs)
 
 	def get_shape_descriptors(self, group_descriptors_and_dropout_prob):
 		"""Generates shape descriptors from a given batch element containing group descriptors. This is called
