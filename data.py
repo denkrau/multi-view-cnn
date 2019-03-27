@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 
 class Data(object):
 
-	def get_dataset(self, path, one_hot=None, create_labels=False):
+	def get_dataset(self, path, train=True, test=True, one_hot=None, create_labels=False):
 		#create lists to store training and test data
 		x_train = []
 		y_train = []
@@ -65,7 +65,7 @@ class Data(object):
 						img = img / 255.0
 					if img.shape[0] != params.IMAGE_SIZE and img.shape[1] != params.IMAGE_SIZE:
 						img = cv2.resize(img, (params.IMAGE_SIZE, params.IMAGE_SIZE), interpolation=cv2.INTER_AREA)
-					if set_ == "train":
+					if set_ == "train" and train:
 						x_train.append(img)
 						#add label depending on number of categories and materials
 						if has_categories and has_materials:
@@ -77,7 +77,7 @@ class Data(object):
 							y_train.append(int(label_mat_id))
 						elif has_categories and not has_materials:
 							y_train.append(labels.index(label_cat))
-					elif set_ == "test":
+					elif set_ == "test" and test:
 						x_test.append(img)
 						if has_categories and has_materials:
 							if params.DATASET_IS_SINGLELABEL:
@@ -126,10 +126,14 @@ class Data(object):
 			x_test: reshaped testing set with views as each object's depth; size [-1, n_views, image_size, image_size, channels]
 			y_test: label of each testing object
 		"""
-		x_train = x_train.reshape([-1, n_views, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS])
-		x_test = x_test.reshape([-1, n_views, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS])
-		y_train = y_train[0::n_views]
-		y_test = y_test[0::n_views]
+		if x_train is not None:
+			x_train = x_train.reshape([-1, n_views, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS])
+		if x_test is not None:
+			x_test = x_test.reshape([-1, n_views, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS])
+		if y_train is not None:
+			y_train = y_train[0::n_views]
+		if y_test is not None:
+			y_test = y_test[0::n_views]
 		return x_train, y_train, x_test, y_test
 
 	def shuffle(self, *lists):
