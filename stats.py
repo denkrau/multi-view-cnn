@@ -31,18 +31,18 @@ if __name__ == "__main__":
 	model = model.Model()
 	data = data.Data()
 
-	x_train, y_train, x_test, y_test = data.get_dataset(params.DATASET_PATH, one_hot=True)
+	x_train, y_train, x_test, y_test = data.get_dataset(params.DATASET_PATH, train=False, one_hot=True)
 	n_objects_train, n_objects_test = data.get_amount_objects_per_category()
 
 	if arg_multi:
 		x_train, y_train, x_test, y_test = data.single_to_multi_view(x_train, y_train, x_test, y_test, params.N_VIEWS)
 	labels = data.load_labels()
 
-	_, _, _, _, _, correct_predictions = model.predict(x_test, y_test)
+	_, _, _, _, _, correct_predictions, _ = model.predict(x_test, y_test, get_saliency=False, get_activations=False)
 
 	if params.DATASET_IS_SINGLELABEL:
 		overall_accuracy = []
-		print("\n*** ACCURACY PER LABEL ***")
+		print("*** ACCURACY PER LABEL ***")
 		for i in range(params.DATASET_NUMBER_CATEGORIES):
 			for j in range(params.DATASET_NUMBER_MATERIALS):
 				label_id = i * params.DATASET_NUMBER_MATERIALS + j

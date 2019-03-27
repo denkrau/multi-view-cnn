@@ -291,7 +291,7 @@ class Model(object):
 
 		return train_loss, learning_rates, train_accuracy, test_accuracy
 
-	def predict(self, img, labels=None, n_views=params.N_VIEWS, ckpt_file=None):
+	def predict(self, img, labels=None, get_saliency=True, get_activations=True, n_views=params.N_VIEWS, ckpt_file=None):
 		weights, biases = self.get_weights()
 		is_multi_view = None
 		saliencies = []
@@ -369,8 +369,13 @@ class Model(object):
 					group_ids.append(g_ids)
 					group_weights.append(g_weights)
 					view_scores.append(v_scores)
-					acts_convs.append(act_convs)
-					saliencies.append(sal)
+					if get_activations:
+						acts_convs.append(act_convs)
+					else:
+						#save one activations object for later shape lookup
+						acts_convs = [act_convs]
+					if get_saliency:
+						saliencies.append(sal)
 			
 			saliencies = np.reshape(saliencies, [-1, n_views, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS])
 			groups =  np.reshape(groups, [-1, n_views])
@@ -378,8 +383,8 @@ class Model(object):
 			group_ids =  np.reshape(group_ids, [-1, n_views])
 			group_weights =  np.reshape(group_weights, [-1, n_views])
 			correct_predictions =  np.reshape(correct_predictions, [-1])
-			classifications =  np.reshape(classifications, [-1, n_views])
-			acts_convs = np.reshape(acts_convs,  acts_convs[0].shape)
+			classifications =  np.reshape(classifications, [-1, params.N_CLASSES])
+			acts_convs = np.reshape(acts_convs,  [-1, *acts_convs[0].shape[1:]])
 
 		return classifications, saliencies, view_scores, group_ids, group_weights, correct_predictions, acts_convs
 
