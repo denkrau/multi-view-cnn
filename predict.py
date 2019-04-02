@@ -10,19 +10,40 @@ import params
 import matplotlib.pyplot as plt
 import matplotlib
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-matplotlib.rcParams["savefig.directory"] = os.path.join(os.path.dirname(os.getcwd()), "Results")
+path_predictions = os.path.join(os.path.dirname(os.getcwd()), "Results", "Predictions")
+matplotlib.rcParams["savefig.directory"] = path_predictions
+
+def get_save_path(fill=""):
+	filename = None
+	prefix = os.path.basename(params.CKPT_PATH)
+	files = []
+	success = False
+	for root, dirs, files in os.walk(path_predictions):
+		break
+	index = 0
+	while not success:
+		suffix = str(index).zfill(2)
+		join = "_".join([prefix, fill, suffix])
+		hits = [f for f in files if f.startswith(join+"_")]
+		if hits:
+			index += 1
+		else:
+			success = True
+	path = os.path.join(path_predictions, join)
+	return path
 
 if __name__ == "__main__":
 	#first get command line arguments
 	args = sys.argv[1:]
-	unixOptions = "sgfov:c:"
-	gnuOptions = ["saliency", "groups", "features", "one", "views=", "ckpt="]
+	unixOptions = "sgfov:c:w"
+	gnuOptions = ["saliency", "groups", "features", "one", "views=", "ckpt=", "write"]
 	arg_multi = True
-	arg_groups = True
-	arg_saliency = True
+	arg_groups = False
+	arg_saliency = False
 	arg_views = params.N_VIEWS
 	arg_ckpt = None
-	arg_features = True
+	arg_features = False
+	arg_write = False
 	try:
 		args, values = getopt.getopt(args, unixOptions, gnuOptions)
 	except getopt.error as err:
@@ -32,15 +53,17 @@ if __name__ == "__main__":
 		if arg in ("-o", "--one"):
 			arg_multi = False
 		elif arg in ("-g", "--groups"):
-			arg_groups = False
+			arg_groups = True
 		elif arg in ("-v", "--views"):
 			arg_views = int(val)
 		elif arg in ("-c", "--ckpt"):
 			arg_ckpt = val
 		elif arg in ("-f", "--features"):
-			arg_features = False
+			arg_features = True
 		elif arg in ("-s", "--saliency"):
-			arg_saliency = False
+			arg_saliency = True
+		elif arg in ("-w", "--write"):
+			arg_write = True
 
 	#initialize objects for further use
 	model = model.Model()
@@ -81,8 +104,9 @@ if __name__ == "__main__":
 		classification = sorted(zip(labels if labels is not None else range(len(classification)), classification), key=lambda x: (x[1]), reverse=True)
 		print("*** CLASSIFICATION ***")
 		for i in classification[:5]:
-			print(i[0]+":", i[1])
+			print(str(i[0])+":", i[1])
 
+		file_prefix = get_save_path(fill="dropout")
 		if scores.any() and group_ids.any() and group_weights.any():
 			print("\n*** GROUPING ***")
 			print("View", *np.arange(arg_views), sep="\t")
@@ -107,6 +131,8 @@ if __name__ == "__main__":
 					ax[i].yaxis.set_major_locator(plt.NullLocator())
 					ax[i].imshow(groups[i][0][:,:,[2,1,0]], cmap="gray", vmin=0, vmax=1)
 				plt.tight_layout()
+				if arg_write:
+					plt.savefig("_".join([file_prefix, "grouping.png"]))
 
 		#plots saliency maps of each view
 		if arg_saliency:
@@ -124,6 +150,8 @@ if __name__ == "__main__":
 					#saliency[i] = np.where(saliency[i] > 0, saliency[i]/np.max(saliency[i]), 0.0)
 				ax[i].imshow(saliency[i][:,:,[2,1,0]], cmap="gray", vmin=0, vmax=1)
 			plt.tight_layout()
+			if arg_write:
+					plt.savefig("_".join([file_prefix, "saliency.png"]))
 
 		#plots feature maps of each view
 		if arg_features:
@@ -144,6 +172,8 @@ if __name__ == "__main__":
 						img = np.full([kernel_size, kernel_size], 1.0)
 					ax.axis("off")
 					ax.imshow(img.reshape(kernel_size, kernel_size), cmap="gray", vmin=0, vmax=1)
+				if arg_write:
+					plt.savefig("_".join([file_prefix, "activations"+str(v).zfill(2)+".png"]))
 
 	#if a plot exists show it
 	if arg_multi or	arg_groups or arg_saliency or arg_features:
