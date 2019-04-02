@@ -25,6 +25,7 @@ class Data(object):
 		#path-to-dataset/category/set/category_imgId_matId_viewId.ext
 		first_run = True
 		for root, dirs, files in os.walk(path):
+			dirs.sort()
 			#on first run all categories are found as folders
 			#store them as labels and append each material id each time if necessary
 			if first_run and labels is None:

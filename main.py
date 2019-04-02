@@ -36,7 +36,7 @@ if __name__ == "__main__":
 	model = model.Model()
 
 	#get modelnet dataset splitted in training and testing set
-	dataset = data.get_dataset(params.DATASET_PATH, one_hot=True)
+	dataset = data.get_dataset(params.DATASET_PATH, one_hot=True, create_labels=True)
 
 	#get weights
 	weights, biases = model.get_weights()
