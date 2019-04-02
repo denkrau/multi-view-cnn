@@ -1,6 +1,7 @@
 """
-Stores global variables
+Stores global parameters
 """
+import os
 
 # Helper functions
 def get_number_labels():
@@ -14,12 +15,12 @@ def get_number_labels():
 	return n_classes
 
 # Datasets
-DATASET_PATH = ".\\datasets\\modelnet4views"
+DATASET_PATH = os.path.join("datasets", "modelnet4-4")
 DATASET_FORMATS = [".jpg", ".jpeg", ".png"]
 DATASET_NUMBER_CATEGORIES = 4
-DATASET_NUMBER_MATERIALS = 2
+DATASET_NUMBER_MATERIALS = 4
 DATASET_IS_SINGLELABEL = True
-DATASET_LABELS_FILE = ".\\labels.txt"
+DATASET_LABELS_FILE = os.path.join(DATASET_PATH, "labels.txt")
 IMAGE_SIZE = 224
 IMAGE_CHANNELS = 3
 
@@ -33,8 +34,8 @@ N_CLASSES = get_number_labels()
 TRAINING_EPOCHS = 20
 BATCH_SIZE_SINGLE = 128
 BATCH_SIZE_MULTI = 8
-DROPOUT_PROB = 0.0
-CKPT_PATH = ".\\checkpoints"
+DROPOUT_PROB = 0.5
+CKPT_PATH = os.path.join("checkpoints", "mn-sl-4-4-20")
 CKPT_FILE = "model.ckpt"
 CKPT_OVERWRITE = True
 
@@ -44,4 +45,4 @@ FIND_LEARNING_RATE_GROWTH = 1.1
 
 # Summary
 USE_SUMMARY = False
-SUMMARY_PATH = "./Output"
+SUMMARY_PATH = "Output"
