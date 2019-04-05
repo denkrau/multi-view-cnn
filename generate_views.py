@@ -63,7 +63,7 @@ def is_face_visible(face):
 		cam.rotation_euler[2] = i*camera_steps*3.141/180
 		bpy.ops.view3d.camera_to_view_selected()
 		#apply padding to render by moving camera away along its z-axis
-		cam.location = cam.matrix_world * Vector((0,0,6))
+		cam.location = cam.matrix_world * Vector((0,0,cam.location[2]*0.1))
 		number_of_vertex_misses = 0
 		for c in face_coords:
 			#result = [is_hit, hit_location, face_normal, face_id]
@@ -85,7 +85,7 @@ def is_face_visible(face):
 	return False
 
 
-def get_optimal_face(cam, obj, colors_per_object=1):
+def get_optimal_face(cam, obj, n_features=1):
 	"""Iterates over all mesh faces to find one that has a decent size and is seen by the camera
 
 		Args:
@@ -117,7 +117,7 @@ def get_optimal_face(cam, obj, colors_per_object=1):
 	for face in possible_faces:
 		if is_face_visible(face):
 			faces_to_color.append(get_identical_faces(face))
-			if colors_per_object > 1:
+			if n_features > 1:
 				possible_faces = sorted(possible_faces, key=lambda x: np.linalg.norm(x.center-face.center), reverse=True)
 				for face2 in possible_faces[:-1]:
 					if is_face_visible(face2):
@@ -136,14 +136,14 @@ def get_identical_faces(face):
 	Returns:
 		identical_faces: list of identical face objects
 	"""	
-	identical_faces = [face]
+	identical_faces = []
 	vertices = obj.data.vertices
 	faces = obj.data.polygons
 	face_idx = list(faces).index(face)
 	face_coords = []
 	for v in face.vertices:
 		face_coords.append(vertices[v].co)
-	for f in faces[face_idx+1:]:
+	for f in faces:
 		iter_coords = []
 		sum_matches = 0
 		for v in f.vertices:
@@ -155,19 +155,34 @@ def get_identical_faces(face):
 			
 	return identical_faces
 
+def render_and_save(root, obj_name, feature_id):
+	#position camera for first view
+	cam.location = (0, 0, 0)
+	cam.rotation_euler[0] = 60*3.141/180
+
+	#render views and save to disk
+	for k in range(n_views):
+		cam.rotation_euler[2] = k*camera_steps*3.141/180
+		bpy.ops.view3d.camera_to_view_selected()
+		#apply padding to render by moving camera away along its z-axis
+		cam.location = cam.matrix_local * Vector((0,0,cam.location[2]*0.1))
+		bpy.context.scene.render.filepath = os.path.join(root, obj_name + "_" + str(feature_id) + "_" + str(k).zfill(3) + ".png")
+		bpy.ops.render.render(write_still=True)
+
 # define views and camera position
 n_views = 12
 camera_steps = 360/n_views
-n_train_objects = 80
-n_test_objects = 20
-colors_per_object = 1
-n_materials = 2
+n_train_objects = 90
+n_test_objects = 30
+n_double_features_different = 1
+n_double_features_same = 1
+n_single_features = 3
 
 # define paths
-input = "D:\\Downloads\\Web\\ModelNet10"
+input = "D:\\Downloads\\Web\\ModelNet40"
 output = "D:\\Downloads\\Web\\ModelNet10views"
 
-# define each material and color
+# define each material's color
 materials = collections.OrderedDict([("green", (0,255,0)), ("red", (255,0,0)), ("orange", (255,165,0)), ("blue", (0,0,255))])
 
 #delete default cube
@@ -198,45 +213,60 @@ mats = register_materials(materials)
 for root, dirs, files in os.walk(input):
 	n_objects = 0
 	for file in sorted(files):
-		if os.path.splitext(file)[1] == ".off":
-			path, type = os.path.split(root)
+		if os.path.splitext(file)[1] == ".off" and os.path.basename(os.path.dirname(root)) in ["bottle"]:
+			path, set_ = os.path.split(root)
 			category = os.path.split(path)[1]
 			filename, ext = os.path.splitext(file)
 			bpy.ops.import_mesh.off(filepath=os.path.join(root, file))
 			bpy.ops.object.origin_set(type="ORIGIN_CENTER_OF_MASS")
 			obj = bpy.data.objects[os.path.splitext(file)[0]]
 			register_object_materials(obj, mats)
-			faces_to_color = get_optimal_face(cam, obj, colors_per_object=colors_per_object)
+			faces_to_color = get_optimal_face(cam, obj, n_features=np.count_nonzero([n_single_features, n_double_features_same]))
+
 			if faces_to_color is not None:
+				#keep track of number of objects per set
 				n_objects += 1
-				if type == "train":
+				if set_ == "train":
 					if n_objects > n_train_objects:
 						# delete current mesh
 						bpy.ops.object.select_all(action='DESELECT')
 						obj.select = True
 						bpy.ops.object.delete()
 						break
-				elif type == "test":
+				elif set_ == "test":
 					if n_objects > n_test_objects:
 						# delete current mesh
 						bpy.ops.object.select_all(action='DESELECT')
 						obj.select = True
 						bpy.ops.object.delete()
 						break
-				for j in range(n_materials):
-					for f, faces in enumerate(faces_to_color):
-						for face in faces:
-							face.material_index = j*len(faces_to_color)+1+f
-					# position camera for first view
-					bpy.data.objects["Camera"].location = (0, 0, 0)
-					bpy.data.objects["Camera"].rotation_euler[0] = 60*3.141/180
-					for k in range(n_views):
-						bpy.data.objects["Camera"].rotation_euler[2] = k*camera_steps*3.141/180
-						bpy.ops.view3d.camera_to_view_selected()
-						#apply padding to render by moving camera away along its z-axis
-						bpy.data.objects["Camera"].location = bpy.data.objects["Camera"].matrix_local * Vector((0,0,6))
-						bpy.context.scene.render.filepath = os.path.join(output, category, type, filename + "_" + str(j) + "_" + str(k).zfill(3) + ".png")
-						bpy.ops.render.render(write_still=True)
+
+				#color feature faces and save views to disk
+				feature_id = 0
+				#single features
+				for i in range(n_single_features):
+					for f in faces_to_color[0]:
+						f.material_index = i
+					render_and_save(os.path.join(output, category, set_), filename, feature_id)
+					feature_id += 1
+
+				#differend double features
+				for i in range(n_double_features_different):
+					for faces_id, faces in enumerate(faces_to_color[:2]):
+						for f in faces:
+							#suppose first material is blank therefore use i+1
+							f.material_index = i+1+faces_id
+					render_and_save(os.path.join(output, category, set_), filename, feature_id)
+					feature_id += 1
+
+				#same double features
+				for i in range(n_double_features_same):
+					for faces in faces_to_color[:2]:
+						for f in faces:
+							#suppose first material is blank therefore use i+1
+							f.material_index = i+1
+					render_and_save(os.path.join(output, category, set_), filename, feature_id)
+					feature_id += 1
 			
 			# delete current mesh
 			bpy.ops.object.select_all(action='DESELECT')
