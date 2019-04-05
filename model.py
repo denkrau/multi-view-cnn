@@ -127,7 +127,7 @@ class Model(object):
 			fc1 = tf.reshape(x, [-1, weights['wd4'].get_shape().as_list()[0]])
 			fc1 = tf.add(tf.matmul(fc1, weights['wd4']), biases['bd4'])
 			fc1 = tf.nn.leaky_relu(fc1)
-			fc1 = tf.nn.dropout(fc1, 1-dropout_prob[0])
+			#fc1 = tf.nn.dropout(fc1, 1-dropout_prob[0])
 			#add constant to avoid log(0) and therefore NaNs in cost function
 			fc1 = tf.sigmoid(tf.log(tf.abs(fc1)+tf.constant(0.000001)), name="view_discr_score")
 		return fc1
@@ -144,6 +144,7 @@ class Model(object):
 			biases: dictionary with model biases
 			ckpt: checkpoint file path for pre-trained model params
 		"""
+		global_step = tf.Variable(0, trainable=False, name="global_step")
 		x_train, y_train, x_test, y_test = dataset
 		is_multi_view = False
 		# if shape of x placeholder relates to n_views dimension a multi-view input is supposed
@@ -155,9 +156,6 @@ class Model(object):
 			# view_descriptors = [-1, n_views, 1, 6, 6, 512], view_discrimination_scores = [-1, n_views, 1, 1] -> [-1, n_views]
 			with tf.name_scope("view_descriptors_and_scores"):
 				view_descriptors, view_discrimination_scores, activations_convs = tf.map_fn(self.get_view_descriptors_and_scores, [x, dropout_prob], dtype=(tf.float32, tf.float32, tf.float32))
-				if params.USE_SUMMARY:
-					tf.summary.histogram("view_descriptors", view_descriptors)
-					tf.summary.histogram("view_scores", view_discrimination_scores)
 				#make scores more compact
 				view_discrimination_scores = tf.reshape(view_discrimination_scores, [-1, params.N_VIEWS])
 
@@ -181,10 +179,11 @@ class Model(object):
 			cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(logits=pred, labels=y))
 		else:
 			cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=pred, labels=y))
-		#cost = tf.reduce_mean(tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(logits=pred, labels=y), axis=1))
+
 		#learning_rate = tf.placeholder(tf.float32, ())
 		learning_rate = params.LEARNING_RATE
-		optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost)
+		optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost, global_step=global_step)
+
 		if params.DATASET_IS_SINGLELABEL:
 			correct_prediction = tf.equal(tf.argmax(pred, 1), tf.argmax(y, 1))
 		else:
@@ -192,8 +191,12 @@ class Model(object):
 		accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 		init = tf.global_variables_initializer()
 		saver = tf.train.Saver()
-		if params.USE_SUMMARY:
+
+		with tf.name_scope("summaries"):
+			summary_loss = tf.summary.scalar("loss", cost)
+			summary_accuracy = tf.summary.scalar("accuracy", accuracy)
 			merged = tf.summary.merge_all()
+
 		#config = tf.ConfigProto()
 		#config.gpu_options.allow_growth = True
 		with tf.Session() as sess:
@@ -202,24 +205,20 @@ class Model(object):
 				sess.run(init)
 			else:
 				saver.restore(sess, ckpt)
-			if params.USE_SUMMARY:
-				summary_writer = tf.summary.FileWriter(params.SUMMARY_PATH, sess.graph)
+
+			train_summary_writer = tf.summary.FileWriter(os.path.join(params.SUMMARY_PATH, "train"), sess.graph)
+			test_summary_writer = tf.summary.FileWriter(os.path.join(params.SUMMARY_PATH, "test"), sess.graph)
 
 			train_loss = []
-			learning_rates = []
+			test_loss = []
+			train_accuracy = []
+			test_accuracy = []
+			learning_rate = []
 			dropout_prob_value = np.full([batch_size, 1], params.DROPOUT_PROB)
 
 			for i in range(params.TRAINING_EPOCHS if find_lr is None else 100):
 				x_train, y_train = self.data.shuffle(x_train, y_train)
 				x_test, y_test = self.data.shuffle(x_test, y_test)
-				
-				if find_lr is None:
-					#reset lists due to performance reasons
-					train_loss = []
-					learning_rates = []
-				test_loss = []
-				train_accuracy = []
-				test_accuracy = []
 
 				for batch in range(len(x_train)//batch_size):
 					print("Epoch", i, "Batch", batch, "of", len(x_train)//batch_size, end="\r")
@@ -228,17 +227,19 @@ class Model(object):
 					#learning_rates.append(lr)
 					# Run optimization op (backprop).
 					    # Calculate batch loss and accuracy
+					opt = None
+					acc = None
+					loss = None
 					if is_multi_view:
 						if params.USE_SUMMARY:
 							#summary, opt, scores, descr = sess.run([merged, optimizer, view_discrimination_scores, view_descriptors], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
-							summary, opt, scores, descr = sess.run([merged, optimizer, view_discrimination_scores, view_descriptors], feed_dict={x: batch_x, y: batch_y, dropout_prob: dropout_prob_value})
+							summary, opt, s = sess.run([merged, optimizer, view_discrimination_scores], feed_dict={x: batch_x, y: batch_y, dropout_prob: dropout_prob_value})
+							train_summary_writer.add_summary(summary, tf.train.global_step(sess, global_step))
 						else:
 							#opt = sess.run([optimizer], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
-							opt, s = sess.run([optimizer,view_discrimination_scores], feed_dict={x: batch_x, y: batch_y, dropout_prob: dropout_prob_value})
+							opt, s = sess.run([optimizer, view_discrimination_scores], feed_dict={x: batch_x, y: batch_y, dropout_prob: dropout_prob_value})
 						#loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
-						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y})
-						if params.USE_SUMMARY:
-							summary_writer.add_summary(summary)
+						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y})							
 
 					else:
 						#opt = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
@@ -247,11 +248,12 @@ class Model(object):
 						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y})
 
 					train_loss.append(loss)
+					train_accuracy.append(acc)
 
 					#finding learning rate is active, therefore break if latest loss is much larger than loss before
 					if find_lr is not None and i > 0:
 						if train_loss[-1] > 4 * train_loss[-2]:
-							return train_loss, learning_rates, train_accuracy, test_accuracy
+							return train_loss, train_accuracy, test_accuracy, learning_rate
 
 					#lr = self.update_learning_rate(lr, find_lr)
 				print(s)
@@ -263,33 +265,36 @@ class Model(object):
 				# Calculate accuracy for all images
 				#divide in batches and calculate mean to prevent OOM error
 				if find_lr is None:
-					test_batch_accuracy = []
-					test_batch_valid_loss = []
+					epoch_test_accuracy = []
 					for test_batch in range(len(x_test)//batch_size):
 						batch_x_test = x_test[test_batch*batch_size:min((test_batch+1)*batch_size, len(x_test))]
 						batch_y_test = y_test[test_batch*batch_size:min((test_batch+1)*batch_size, len(y_test))]
 						if is_multi_view:
-							test_acc, valid_loss = sess.run([accuracy,cost], feed_dict={x: batch_x_test, y : batch_y_test})
+							if params.USE_SUMMARY:
+								test_acc, valid_loss, summary = sess.run([accuracy, cost, merged], feed_dict={x: batch_x_test, y : batch_y_test})
+							else:
+								test_acc, valid_loss = sess.run([accuracy, cost], feed_dict={x: batch_x_test, y : batch_y_test})
 						else:
 							test_acc, valid_loss = sess.run([accuracy,cost], feed_dict={x: batch_x_test, y : batch_y_test})
-						test_batch_accuracy.append(test_acc)
-						test_batch_valid_loss.append(valid_loss)
 
-					test_loss.append(np.mean(test_batch_valid_loss))
-					test_accuracy.append(np.mean(test_batch_accuracy))
+						test_accuracy.append(test_acc)
+						epoch_test_accuracy.append(test_acc)
 
-					print("Testing Accuracy:","{:.5f}".format(test_accuracy[-1]))
+					#only save latest summary
+					if params.USE_SUMMARY:
+						test_summary_writer.add_summary(summary, tf.train.global_step(sess, global_step))
 
-				train_accuracy.append(acc)
+					print("Testing Accuracy:","{:.5f}".format(np.mean(epoch_test_accuracy)))
 			try:
 				saver.save(sess, os.path.join(params.CKPT_PATH, params.CKPT_FILE))
 			except Exception as e:
 				print(e)
 			print("Training finished!")
-			if params.USE_SUMMARY:
-				summary_writer.close()
 
-		return train_loss, learning_rates, train_accuracy, test_accuracy
+			train_summary_writer.close()
+			test_summary_writer.close()
+
+		return train_loss, train_accuracy, test_accuracy, learning_rate
 
 	def predict(self, img, labels=None, get_saliency=True, get_activations=True, n_views=params.N_VIEWS, ckpt_file=None):
 		weights, biases = self.get_weights()

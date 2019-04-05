@@ -10,26 +10,37 @@ import params
 import matplotlib.pyplot as plt
 import matplotlib
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-path_predictions = os.path.join(os.path.dirname(os.getcwd()), "Results", "Predictions")
+path_predictions = os.path.join(params.RESULTS_PATH, "Predictions")
 matplotlib.rcParams["savefig.directory"] = path_predictions
 
-def get_save_path(fill=""):
+def get_save_path(fill="", ckpt_file=None):
+	"""Creates a path where to save plots that is related to the used checkpoint
+	and predicted object.
+
+	Args:
+		fill: string to put into path
+		ckpt_file: string of checkpoint file
+
+	Returns:
+		path: path where to save plots, i.e Results/Predictions/mn-sl-4-5-20/
+	"""
 	filename = None
-	prefix = os.path.basename(params.CKPT_PATH)
-	files = []
-	success = False
-	for root, dirs, files in os.walk(path_predictions):
-		break
-	index = 0
-	while not success:
-		suffix = str(index).zfill(2)
-		join = "_".join([prefix, fill, suffix])
-		hits = [f for f in files if f.startswith(join+"_")]
-		if hits:
-			index += 1
-		else:
-			success = True
-	path = os.path.join(path_predictions, join)
+	#get name of used model/checkpoint
+	if ckpt_file is None:
+		model_name = os.path.basename(params.CKPT_PATH)
+	else:
+		model_name = os.path.basename(os.path.dirname(ckpt_file))
+
+	#join fill string if given
+	if fill:
+		model_name = "_".join([model_name, fill])
+
+	path = os.path.join(path_predictions, model_name)
+
+	#if directory does not exist create it
+	if not os.path.isdir(path):
+		os.makedirs(path)
+
 	return path
 
 if __name__ == "__main__":
@@ -97,17 +108,28 @@ if __name__ == "__main__":
 				images.append(img)
 		images = np.reshape(images, [-1, arg_views, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS])
 
+	#manipulate view filename to get object name for path creation
+	if arg_write:
+		values = ["_".join(os.path.splitext(os.path.basename(v))[0].split("_")[:-1]) for v in values]
+		plot_path = get_save_path(ckpt_file=arg_ckpt)
+
 	#predictions = classifications, saliencies, view_scores, group_ids, group_weights, correct_predictions, activations_convs
 	predictions = model.predict(images, ckpt_file=arg_ckpt)
 
-	for classification, saliency, scores, group_ids, group_weights, is_correct, activation_convs, views in zip(*predictions, images):
+	for classification, saliency, scores, group_ids, group_weights, is_correct, activation_convs, views, obj_name in zip(*predictions, images, values):
 		classification = sorted(zip(labels if labels is not None else range(len(classification)), classification), key=lambda x: (x[1]), reverse=True)
+		if arg_write:
+			f = open(os.path.join(plot_path, "_".join([obj_name, "prediction.txt"])), "w")
+			f.write("Classification:\n")
 		print("*** CLASSIFICATION ***")
 		for i in classification[:5]:
 			print(str(i[0])+":", i[1])
+			if arg_write:
+				f.write("{}: {}\n".format(i[0], i[1]))
+		if arg_write:
+			f.close()
 
-		file_prefix = get_save_path(fill="dropout")
-		if scores.any() and group_ids.any() and group_weights.any():
+		if scores.size and group_ids.size and group_weights.size:
 			print("\n*** GROUPING ***")
 			print("View", *np.arange(arg_views), sep="\t")
 			print("=====================================================================================================")
@@ -119,7 +141,7 @@ if __name__ == "__main__":
 			print("Weight", *np.around(group_weights, 3), "\n", sep="\t")
 
 			#plots group distribution of each view
-			if arg_groups:
+			if arg_groups or arg_write:
 				groups = sorted(zip(views, scores, group_ids, saliency), key=lambda x: (x[2], x[1]))
 				_, idx = np.unique([i[2] for i in groups], return_index=True)
 				fig, ax = plt.subplots(1, arg_views, figsize=(15,2), dpi=100)
@@ -132,10 +154,12 @@ if __name__ == "__main__":
 					ax[i].imshow(groups[i][0][:,:,[2,1,0]], cmap="gray", vmin=0, vmax=1)
 				plt.tight_layout()
 				if arg_write:
-					plt.savefig("_".join([file_prefix, "grouping.png"]))
+					plt.savefig(os.path.join(plot_path, "_".join([obj_name, "grouping.png"])))
+				if not arg_groups:
+					plt.close()
 
 		#plots saliency maps of each view
-		if arg_saliency:
+		if arg_saliency or arg_write:
 			if scores.any() and group_ids.any() and group_weights.any():
 				groups = sorted(zip(views, scores, group_ids, saliency), key=lambda x: (x[2], x[1]))
 				saliency = [s[3] for s in groups]
@@ -151,10 +175,12 @@ if __name__ == "__main__":
 				ax[i].imshow(saliency[i][:,:,[2,1,0]], cmap="gray", vmin=0, vmax=1)
 			plt.tight_layout()
 			if arg_write:
-					plt.savefig("_".join([file_prefix, "saliency.png"]))
+				plt.savefig(os.path.join(plot_path, "_".join([obj_name, "saliency.png"])))
+			if not arg_saliency:
+				plt.close()
 
 		#plots feature maps of each view
-		if arg_features:
+		if arg_features or arg_write:
 			kernel_size = activation_convs.shape[-2]
 			n_filter = activation_convs.shape[-1]
 			grid_size = np.ceil(np.sqrt(n_filter)).astype(int)
@@ -173,7 +199,9 @@ if __name__ == "__main__":
 					ax.axis("off")
 					ax.imshow(img.reshape(kernel_size, kernel_size), cmap="gray", vmin=0, vmax=1)
 				if arg_write:
-					plt.savefig("_".join([file_prefix, "activations"+str(v).zfill(2)+".png"]))
+					plt.savefig(os.path.join(plot_path, "_".join([obj_name, "activations"+str(v).zfill(2)+".png"])))
+				if not arg_features:
+					plt.close()
 
 	#if a plot exists show it
 	if arg_multi or	arg_groups or arg_saliency or arg_features:

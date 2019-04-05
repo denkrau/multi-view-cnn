@@ -2,12 +2,21 @@ import sys
 import getopt
 from copy import deepcopy
 import numpy as np
+import matplotlib.pyplot as plt
 import data
 import model
 import params
 import cv2
 import tensorflow as tf
 import os
+
+def moving_average(series, window_size):
+	smoothed = []
+	for i in range(len(series)):
+		range_ = max(i-window_size+1, 0)
+		v = series[range_:i+1]
+		smoothed.append(np.mean(v))
+	return smoothed
 
 if __name__ == "__main__":
 	#first get command line arguments
@@ -57,4 +66,35 @@ if __name__ == "__main__":
 
 		#multi_view_dataset = copy.deepcopy(set)
 		multi_view_dataset = data.single_to_multi_view(*dataset, params.N_VIEWS)
-		model.train(x_mv, y, multi_view_dataset, weights, biases, arg_ckpt)
+		train_loss, train_accuracy, test_accuracy, learning_rate = model.train(x_mv, y, multi_view_dataset, weights, biases, arg_ckpt)
+
+	if params.USE_PYPLOT:
+		path = os.path.join(params.RESULTS_PATH, "models", os.path.basename(params.CKPT_PATH))
+		if not os.path.isdir(path):
+			os.makedirs(path)
+		np.savez(os.path.join(path, "raw_data.npz"), loss=train_loss, training_accuracy=train_accuracy, testing_accuracy=test_accuracy)
+		plt.figure(0)
+		plt.xlabel("Iterations")
+		plt.ylabel("Loss")
+		plt.plot(train_loss, "g-", label="Loss", alpha=0.2)
+		plt.plot(moving_average(train_loss, 5), "g-", label="Loss MA")
+		plt.tight_layout()
+		plt.savefig(os.path.join(path, "loss.png"))
+
+		plt.figure(1)
+		plt.xlabel("Iterations")
+		plt.ylabel("Accuracy")
+		plt.plot(train_accuracy, "g-", label="Training Accuracy", alpha=0.2)
+		plt.plot(moving_average(train_accuracy, 5), "g-", label="Training Accuracy MA")
+		plt.tight_layout()
+		plt.savefig(os.path.join(path, "training_accuracy.png"))
+
+		plt.figure(2)
+		plt.xlabel("Iterations")
+		plt.ylabel("Accuracy")
+		plt.plot(test_accuracy, "g-", label="Testing Accuracy", alpha=0.2)
+		plt.plot(moving_average(test_accuracy, 5), "g-", label="Testing Accuracy MA")
+		plt.tight_layout()
+		plt.savefig(os.path.join(path, "testing_accuracy.png"))
+
+		plt.show()
