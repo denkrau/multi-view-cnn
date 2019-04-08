@@ -9,6 +9,8 @@ import data
 import params
 import matplotlib.pyplot as plt
 import matplotlib
+from matplotlib2tikz import save as tikz_save
+
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 path_predictions = os.path.join(params.RESULTS_PATH, "Predictions")
 matplotlib.rcParams["savefig.directory"] = path_predictions
@@ -155,12 +157,13 @@ if __name__ == "__main__":
 				plt.tight_layout()
 				if arg_write:
 					plt.savefig(os.path.join(plot_path, "_".join([obj_name, "grouping.png"])))
+					save_tikz(os.path.join(plot_path, "_".join([obj_name, "grouping.png"])), figureheight="\\figureheight", figurewidth="\\figurewidth")
 				if not arg_groups:
 					plt.close()
 
 		#plots saliency maps of each view
 		if arg_saliency or arg_write:
-			if scores.any() and group_ids.any() and group_weights.any():
+			if scores.size and group_ids.size and group_weights.size:
 				groups = sorted(zip(views, scores, group_ids, saliency), key=lambda x: (x[2], x[1]))
 				saliency = [s[3] for s in groups]
 			fig, ax = plt.subplots(1, arg_views, figsize=(15,2), dpi=100)
@@ -176,6 +179,7 @@ if __name__ == "__main__":
 			plt.tight_layout()
 			if arg_write:
 				plt.savefig(os.path.join(plot_path, "_".join([obj_name, "saliency.png"])))
+				save_tikz(os.path.join(plot_path, "_".join([obj_name, "saliency.png"])), figureheight="\\figureheight", figurewidth="\\figurewidth")
 			if not arg_saliency:
 				plt.close()
 
@@ -200,6 +204,7 @@ if __name__ == "__main__":
 					ax.imshow(img.reshape(kernel_size, kernel_size), cmap="gray", vmin=0, vmax=1)
 				if arg_write:
 					plt.savefig(os.path.join(plot_path, "_".join([obj_name, "activations"+str(v).zfill(2)+".png"])))
+					save_tikz(os.path.join(plot_path, "_".join([obj_name, "activations"+str(v).zfill(2)+".png"])), figureheight="\\figureheight", figurewidth="\\figurewidth")
 				if not arg_features:
 					plt.close()
 

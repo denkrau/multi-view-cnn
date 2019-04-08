@@ -3,6 +3,7 @@ import getopt
 from copy import deepcopy
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib2tikz import save as tikz_save
 import data
 import model
 import params
@@ -10,8 +11,20 @@ import cv2
 import tensorflow as tf
 import os
 
-def moving_average(series, window_size):
+def moving_average(series, window_size, use_fraction=False):
+	"""Smoothes a data series by applying a moving average.
+
+	Args:
+		series: list of data points
+		window_size: amount of data points to use for mean calculation
+		use_fraction: specifies if window_size is a fraction of the dataset
+
+	Returns:
+		smoothed: list of smoothed data points
+	"""
 	smoothed = []
+	if use_fraction:
+		window_size = int(np.floor(window_size * len(series)))
 	for i in range(len(series)):
 		range_ = max(i-window_size+1, 0)
 		v = series[range_:i+1]
@@ -19,6 +32,9 @@ def moving_average(series, window_size):
 	return smoothed
 
 if __name__ == "__main__":
+	#plotting parameters
+	moving_average_window_size = .1
+
 	#first get command line arguments
 	args = sys.argv[1:]
 	unixOptions = "t:cp:"
@@ -77,24 +93,27 @@ if __name__ == "__main__":
 		plt.xlabel("Iterations")
 		plt.ylabel("Loss")
 		plt.plot(train_loss, "g-", label="Loss", alpha=0.2)
-		plt.plot(moving_average(train_loss, 5), "g-", label="Loss MA")
+		plt.plot(moving_average(train_loss, moving_average_window_size, use_fraction=True), "g-", label="Loss MA")
 		plt.tight_layout()
 		plt.savefig(os.path.join(path, "loss.png"))
+		save_tikz(os.path.join(path, "loss.png"), figureheight="\\figureheight", figurewidth="\\figurewidth")
 
 		plt.figure(1)
 		plt.xlabel("Iterations")
 		plt.ylabel("Accuracy")
 		plt.plot(train_accuracy, "g-", label="Training Accuracy", alpha=0.2)
-		plt.plot(moving_average(train_accuracy, 5), "g-", label="Training Accuracy MA")
+		plt.plot(moving_average(train_accuracy, moving_average_window_size, use_fraction=True), "g-", label="Training Accuracy MA")
 		plt.tight_layout()
 		plt.savefig(os.path.join(path, "training_accuracy.png"))
+		save_tikz(os.path.join(path, "training_accuracy.png"), figureheight="\\figureheight", figurewidth="\\figurewidth")
 
 		plt.figure(2)
 		plt.xlabel("Iterations")
 		plt.ylabel("Accuracy")
 		plt.plot(test_accuracy, "g-", label="Testing Accuracy", alpha=0.2)
-		plt.plot(moving_average(test_accuracy, 5), "g-", label="Testing Accuracy MA")
+		plt.plot(moving_average(test_accuracy, moving_average_window_size, use_fraction=True), "g-", label="Testing Accuracy MA")
 		plt.tight_layout()
 		plt.savefig(os.path.join(path, "testing_accuracy.png"))
+		save_tikz(os.path.join(path, "testing_accuracy.png"), figureheight="\\figureheight", figurewidth="\\figurewidth")
 
 		plt.show()
