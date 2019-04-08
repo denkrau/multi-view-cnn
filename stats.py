@@ -8,6 +8,7 @@ import model
 import data
 import params
 import matplotlib.pyplot as plt
+import sklearn.metrics as metrics
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
@@ -41,14 +42,18 @@ if __name__ == "__main__":
 
 	_, _, _, group_ids, _, correct_predictions, _ = model.predict(x_test, y_test, get_saliency=False, get_activations=False)
 
+	#split correct_predictions in lists of if classification is correct and classified label id
+	is_correct = correct_predictions[:,0]
+	correct_label_ids = correct_predictions[:,1]
+
 	if params.DATASET_IS_SINGLELABEL:
 		#if write argument is given create file and write results
 		if arg_write:
 			path = os.path.join(params.RESULTS_PATH, "models", os.path.basename(params.CKPT_PATH))
 			f = open(os.path.join(path, "stats.txt"), "w")
-			f.write("Overall Accuracy: {:.3f}\n".format(np.mean(correct_predictions)))
+			f.write("Overall Accuracy: {:.3f}\n".format(np.mean(is_correct)))
 
-		print("Overall Accuracy:", np.round(np.mean(correct_predictions), 3))
+		print("Overall Accuracy:", np.round(np.mean(is_correct), 3))
 
 		if params.DATASET_NUMBER_CATEGORIES > 0 and params.DATASET_NUMBER_MATERIALS > 0:
 			if arg_write:
@@ -60,7 +65,7 @@ if __name__ == "__main__":
 					label_id = i * params.DATASET_NUMBER_MATERIALS + j
 					label = labels[label_id] if labels is not None else label_id
 					offset = np.sum(n_objects_test[:i], dtype=np.int32)
-					values = correct_predictions[offset+j:offset+n_objects_test[i]:params.DATASET_NUMBER_MATERIALS]
+					values = is_correct[offset+j:offset+n_objects_test[i]:params.DATASET_NUMBER_MATERIALS]
 					n_is_correct = np.count_nonzero(values)
 					n_objects = values.shape[0]
 					print(label+":", str(n_is_correct)+"/"+str(n_objects), np.round(np.mean(values), 3))
@@ -79,7 +84,7 @@ if __name__ == "__main__":
 				else:
 					label = labels[i*factor] if labels is not None else i
 				offset = np.sum(n_objects_test[0:i], dtype=np.int32)
-				values = correct_predictions[offset:offset+n_objects_test[i]]
+				values = is_correct[offset:offset+n_objects_test[i]]
 				n_is_correct = np.count_nonzero(values)
 				n_objects = values.shape[0]
 				print(label+":", str(n_is_correct)+"/"+str(n_objects), np.round(np.mean(values), 3))
@@ -91,7 +96,7 @@ if __name__ == "__main__":
 				f.write("\nAccuracy per Label:\n")
 			print("\n*** ACCURACY PER MATERIAL ***")
 			for i in range(params.DATASET_NUMBER_MATERIALS):
-				values = correct_predictions[i::params.DATASET_NUMBER_MATERIALS]
+				values = is_correct[i::params.DATASET_NUMBER_MATERIALS]
 				n_is_correct = np.count_nonzero(values)
 				n_objects = values.shape[0]
 				print("Material"+str(i)+":", str(n_is_correct)+"/"+str(n_objects),np.round(np.mean(values), 3))
@@ -116,6 +121,35 @@ if __name__ == "__main__":
 			print(np.round(np.mean(matches), 3))
 			if arg_write:
 				f.write("{:.3f}\n".format(np.mean(matches)))
+
+		#get several metrics for model evaluation
+		#get label id from one hot encoded labels
+		y_test_id = np.argmax(y_test, axis=1)
+
+		#classification report contains precision, recall and f1-score for each category
+		classification_report = metrics.classification_report(y_test_id, correct_label_ids, target_names=labels)
+		print("\n*** CLASSIFICATION REPORT ***")
+		print(classification_report)
+
+		#confusion score counts right and wrong prediction per category
+		confusion_score = metrics.confusion_matrix(y_test_id, correct_label_ids).tolist()
+		#make the output pretty
+		for i, line in enumerate(confusion_score):
+			line.insert(0, labels[i])
+		confusion_score.insert(0, [" ", *labels])
+
+		print("\n*** CONFUSION SCORE ***")
+		print(np.array(confusion_score))
+
+		#write metrics to disk
+		if arg_write:
+			f.write("\nClassification Report:\n")
+			f.write(classification_report)
+			f.write("\nConfusion Score:\n")
+			for line in confusion_score:
+				for l in line:
+					f.write("{:<10}".format(l))
+				f.write("\n")
 
 		if arg_write:
 			f.close()

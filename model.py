@@ -151,7 +151,7 @@ class Model(object):
 		if x.shape[1] == params.N_VIEWS:
 			is_multi_view = True
 			batch_size = params.BATCH_SIZE_MULTI
-			dropout_prob = tf.placeholder_with_default(np.zeros([batch_size, 1], dtype=np.float32), shape=(None, 1), name="dropout_prob")
+			dropout_prob = tf.placeholder(tf.float32, shape=(None, 1), name="dropout_prob")
 			# feed each batch element of input in first part of cnn (conv layers) to get view descriptors and scores of each channel, i.e. view
 			# view_descriptors = [-1, n_views, 1, 6, 6, 512], view_discrimination_scores = [-1, n_views, 1, 1] -> [-1, n_views]
 			with tf.name_scope("view_descriptors_and_scores"):
@@ -169,7 +169,7 @@ class Model(object):
 				pred = self.cnn_fcs_grouping(batch_group_descriptors, batch_group_weights, weights, biases, dropout_prob)
 		else:
 			batch_size = params.BATCH_SIZE_SINGLE
-			dropout_prob = tf.placeholder_with_default(np.ones([batch_size, 1], dtype=np.float32), shape=(None,1), name="dropout_prob")
+			dropout_prob = tf.placeholder(tf.float32, shape=(None, 1), name="dropout_prob")
 			# feed input to connected cnn
 			pred = self.cnn_convs(x, weights, biases)
 			pred = self.cnn_fcs(pred, weights, biases, dropout_prob)
@@ -214,19 +214,19 @@ class Model(object):
 			train_accuracy = []
 			test_accuracy = []
 			learning_rate = []
-			dropout_prob_value = np.full([batch_size, 1], params.DROPOUT_PROB)
 
 			for i in range(params.TRAINING_EPOCHS if find_lr is None else 100):
 				x_train, y_train = self.data.shuffle(x_train, y_train)
 				x_test, y_test = self.data.shuffle(x_test, y_test)
 
-				for batch in range(len(x_train)//batch_size):
+				for batch in range(int(np.ceil(len(x_train)/batch_size))):
 					print("Epoch", i, "Batch", batch, "of", len(x_train)//batch_size, end="\r")
 					batch_x = x_train[batch*batch_size:min((batch+1)*batch_size,len(x_train))]
 					batch_y = y_train[batch*batch_size:min((batch+1)*batch_size,len(y_train))]
 					#learning_rates.append(lr)
 					# Run optimization op (backprop).
 					    # Calculate batch loss and accuracy
+					dropout_prob_value = np.full([len(batch_x), 1], params.DROPOUT_PROB)
 					opt = None
 					acc = None
 					loss = None
@@ -239,13 +239,13 @@ class Model(object):
 							#opt = sess.run([optimizer], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
 							opt, s = sess.run([optimizer, view_discrimination_scores], feed_dict={x: batch_x, y: batch_y, dropout_prob: dropout_prob_value})
 						#loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
-						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y})							
+						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, dropout_prob: np.zeros([len(batch_x), 1])})							
 
 					else:
 						#opt = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
 						opt = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, dropout_prob: dropout_prob_value})
 						#loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
-						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y})
+						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, dropout_prob: np.zeros([len(batch_x), 1])})
 
 					train_loss.append(loss)
 					train_accuracy.append(acc)
@@ -266,16 +266,16 @@ class Model(object):
 				#divide in batches and calculate mean to prevent OOM error
 				if find_lr is None:
 					epoch_test_accuracy = []
-					for test_batch in range(len(x_test)//batch_size):
+					for test_batch in range(int(np.ceil(len(x_test)/batch_size))):
 						batch_x_test = x_test[test_batch*batch_size:min((test_batch+1)*batch_size, len(x_test))]
 						batch_y_test = y_test[test_batch*batch_size:min((test_batch+1)*batch_size, len(y_test))]
 						if is_multi_view:
 							if params.USE_SUMMARY:
-								test_acc, valid_loss, summary = sess.run([accuracy, cost, merged], feed_dict={x: batch_x_test, y : batch_y_test})
+								test_acc, valid_loss, summary = sess.run([accuracy, cost, merged], feed_dict={x: batch_x_test, y : batch_y_test, dropout_prob: np.zeros([len(batch_x_test), 1])})
 							else:
-								test_acc, valid_loss = sess.run([accuracy, cost], feed_dict={x: batch_x_test, y : batch_y_test})
+								test_acc, valid_loss = sess.run([accuracy, cost], feed_dict={x: batch_x_test, y : batch_y_test, dropout_prob: np.zeros([len(batch_x_test), 1])})
 						else:
-							test_acc, valid_loss = sess.run([accuracy,cost], feed_dict={x: batch_x_test, y : batch_y_test})
+							test_acc, valid_loss = sess.run([accuracy,cost], feed_dict={x: batch_x_test, y : batch_y_test, dropout_prob: np.zeros([len(batch_x_test), 1])})
 
 						test_accuracy.append(test_acc)
 						epoch_test_accuracy.append(test_acc)
@@ -305,6 +305,8 @@ class Model(object):
 		group_ids = []
 		group_weights = []
 		correct_predictions = []
+		is_corrects = []
+		correct_label_ids = []
 		classifications = []
 		acts_convs = []
 		
@@ -313,7 +315,7 @@ class Model(object):
 			is_multi_view = True
 			batch_size = params.BATCH_SIZE_MULTI
 			x = tf.placeholder(tf.float32, [None, n_views, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS], name="x")
-			dropout_prob = tf.placeholder_with_default(np.zeros([np.minimum(batch_size, img.shape[0]), 1], dtype=np.float32), shape=(None, 1), name="dropout_prob")
+			dropout_prob = tf.placeholder(tf.float32, shape=(None, 1), name="dropout_prob")
 
 			with tf.name_scope("view_descriptors_and_scores"):
 				view_descriptors, view_discrimination_scores, activations_convs = tf.map_fn(self.get_view_descriptors_and_scores, [x, dropout_prob], dtype=(tf.float32, tf.float32, tf.float32))
@@ -336,7 +338,7 @@ class Model(object):
 		else:
 			is_multi_view = False
 			batch_size = params.BATCH_SIZE_SINGLE
-			dropout_prob = tf.placeholder_with_default(np.zeros([np.minimum(batch_size, img.shape[0]), 1], dtype=np.float32), shape=(None, 1), name="dropout_prob")
+			dropout_prob = tf.placeholder(tf.float32, shape=(None, 1), name="dropout_prob")
 			# feed input to connected cnn
 			x = tf.placeholder(tf.float32, [None, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS], name="x")
 			pred, activations_convs = self.cnn_convs(x, weights, biases)
@@ -357,23 +359,28 @@ class Model(object):
 
 		with tf.Session() as sess:
 			saver.restore(sess, ckpt_file)
-
-			for batch in range(max(img.shape[0]//batch_size, 1)):
+			for batch in range(int(np.ceil(img.shape[0]/batch_size))):
 				batch_x = img[batch*batch_size:min((batch+1)*batch_size,img.shape[0])]
-				classification = sess.run(pred, feed_dict={x: batch_x})
-				classifications.append(classification)
+				classification = sess.run(pred, feed_dict={x: batch_x, dropout_prob: np.zeros([batch_x.shape[0], 1])})
+				classifications.extend(classification)
 				if labels is not None:
 					batch_y = labels[batch*batch_size:min((batch+1)*batch_size,labels.shape[0])]
-					is_correct = sess.run(correct_prediction, feed_dict={x: batch_x, y: batch_y})
+					is_correct = sess.run(correct_prediction, feed_dict={x: batch_x, y: batch_y, dropout_prob: np.zeros([batch_x.shape[0], 1])})
+					correct_label_id = np.argmax(batch_y, axis=1)
 				else:
-					is_correct = [None]*img.shape[0]
-				correct_predictions.append(is_correct)
+					batch_y = [None]*batch_x.shape[0]
+					is_correct = [None]*batch_x.shape[0]
+					correct_label_id = [None]*batch_x.shape[0]
+
+				is_corrects.extend(is_correct)
+				correct_label_ids.extend(correct_label_id)
+				#correct_predictions.append((is_correct, np.argmax(batch_y, axis=1)))
 
 				if is_multi_view:
-					g_ids, g_weights, v_scores, act_convs, sal = sess.run([batch_group_idx, batch_group_weights, view_discrimination_scores, activations_convs, saliency], feed_dict={x: batch_x})
-					group_ids.append(g_ids)
-					group_weights.append(g_weights)
-					view_scores.append(v_scores)
+					g_ids, g_weights, v_scores, act_convs, sal = sess.run([batch_group_idx, batch_group_weights, view_discrimination_scores, activations_convs, saliency], feed_dict={x: batch_x, dropout_prob: np.zeros([batch_x.shape[0], 1])})
+					group_ids.extend(g_ids)
+					group_weights.extend(g_weights)
+					view_scores.extend(v_scores)
 					if get_activations:
 						acts_convs.append(act_convs)
 					else:
@@ -387,7 +394,7 @@ class Model(object):
 			view_scores =  np.reshape(view_scores, [-1, n_views])
 			group_ids =  np.reshape(group_ids, [-1, n_views])
 			group_weights =  np.reshape(group_weights, [-1, n_views])
-			correct_predictions =  np.reshape(correct_predictions, [-1])
+			correct_predictions =  np.reshape(list(zip(is_corrects, correct_label_ids)), [-1, 2])
 			classifications =  np.reshape(classifications, [-1, params.N_CLASSES])
 			acts_convs = np.reshape(acts_convs,  [-1, *acts_convs[0].shape[1:]])
 
