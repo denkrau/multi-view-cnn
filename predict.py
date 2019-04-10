@@ -9,7 +9,7 @@ import data
 import params
 import matplotlib.pyplot as plt
 import matplotlib
-from matplotlib2tikz import save as tikz_save
+from matplotlib2tikz import save as save_tikz
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 path_predictions = os.path.join(params.RESULTS_PATH, "Predictions")
@@ -150,6 +150,7 @@ if __name__ == "__main__":
 				for i in range(arg_views):
 					if i in idx:
 						ax[i].text(0.5, 1.1, round(group_weights[groups[i][2]], 3), size=12, ha="center", transform=ax[i].transAxes)
+						#ax[i].text(0.5, 1.1, str(round(group_weights[groups[i][2]], 3))+"~"+str(round(group_weights[groups[i][2]]/np.max(group_weights), 3)), size=12, ha="center", transform=ax[i].transAxes)
 					ax[i].text(0.5,-0.15, round(groups[i][1], 3), size=12, ha="center", transform=ax[i].transAxes)
 					ax[i].xaxis.set_major_locator(plt.NullLocator())
 					ax[i].yaxis.set_major_locator(plt.NullLocator())
@@ -157,7 +158,7 @@ if __name__ == "__main__":
 				plt.tight_layout()
 				if arg_write:
 					plt.savefig(os.path.join(plot_path, "_".join([obj_name, "grouping.png"])))
-					save_tikz(os.path.join(plot_path, "_".join([obj_name, "grouping.png"])), figureheight="\\figureheight", figurewidth="\\figurewidth")
+					save_tikz(os.path.join(plot_path, "_".join([obj_name, "grouping.tikz"])), figureheight="\\figureheight", figurewidth="\\figurewidth")
 				if not arg_groups:
 					plt.close()
 
@@ -179,7 +180,7 @@ if __name__ == "__main__":
 			plt.tight_layout()
 			if arg_write:
 				plt.savefig(os.path.join(plot_path, "_".join([obj_name, "saliency.png"])))
-				save_tikz(os.path.join(plot_path, "_".join([obj_name, "saliency.png"])), figureheight="\\figureheight", figurewidth="\\figurewidth")
+				save_tikz(os.path.join(plot_path, "_".join([obj_name, "saliency.tikz"])), figureheight="\\figureheight", figurewidth="\\figurewidth")
 			if not arg_saliency:
 				plt.close()
 
@@ -204,7 +205,7 @@ if __name__ == "__main__":
 					ax.imshow(img.reshape(kernel_size, kernel_size), cmap="gray", vmin=0, vmax=1)
 				if arg_write:
 					plt.savefig(os.path.join(plot_path, "_".join([obj_name, "activations"+str(v).zfill(2)+".png"])))
-					save_tikz(os.path.join(plot_path, "_".join([obj_name, "activations"+str(v).zfill(2)+".png"])), figureheight="\\figureheight", figurewidth="\\figurewidth")
+					save_tikz(os.path.join(plot_path, "_".join([obj_name, "activations"+str(v).zfill(2)+".tikz"])), figureheight="\\figureheight", figurewidth="\\figurewidth")
 				if not arg_features:
 					plt.close()
 
