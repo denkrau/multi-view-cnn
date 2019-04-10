@@ -3,7 +3,7 @@ import getopt
 from copy import deepcopy
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib2tikz import save as tikz_save
+from matplotlib2tikz import save as save_tikz
 import data
 import model
 import params
@@ -94,26 +94,29 @@ if __name__ == "__main__":
 		plt.ylabel("Loss")
 		plt.plot(train_loss, "g-", label="Loss", alpha=0.2)
 		plt.plot(moving_average(train_loss, moving_average_window_size, use_fraction=True), "g-", label="Loss MA")
+		plt.legend()
 		plt.tight_layout()
 		plt.savefig(os.path.join(path, "loss.png"))
-		save_tikz(os.path.join(path, "loss.png"), figureheight="\\figureheight", figurewidth="\\figurewidth")
+		save_tikz(os.path.join(path, "loss.tikz"), figureheight="\\figureheight", figurewidth="\\figurewidth")
 
 		plt.figure(1)
 		plt.xlabel("Iterations")
 		plt.ylabel("Accuracy")
 		plt.plot(train_accuracy, "g-", label="Training Accuracy", alpha=0.2)
 		plt.plot(moving_average(train_accuracy, moving_average_window_size, use_fraction=True), "g-", label="Training Accuracy MA")
+		plt.legend()
 		plt.tight_layout()
 		plt.savefig(os.path.join(path, "training_accuracy.png"))
-		save_tikz(os.path.join(path, "training_accuracy.png"), figureheight="\\figureheight", figurewidth="\\figurewidth")
+		save_tikz(os.path.join(path, "training_accuracy.tikz"), figureheight="\\figureheight", figurewidth="\\figurewidth")
 
 		plt.figure(2)
-		plt.xlabel("Iterations")
+		plt.xlabel("Epochs")
 		plt.ylabel("Accuracy")
 		plt.plot(test_accuracy, "g-", label="Testing Accuracy", alpha=0.2)
 		plt.plot(moving_average(test_accuracy, moving_average_window_size, use_fraction=True), "g-", label="Testing Accuracy MA")
+		plt.legend()
 		plt.tight_layout()
 		plt.savefig(os.path.join(path, "testing_accuracy.png"))
-		save_tikz(os.path.join(path, "testing_accuracy.png"), figureheight="\\figureheight", figurewidth="\\figurewidth")
+		save_tikz(os.path.join(path, "testing_accuracy.tikz"), figureheight="\\figureheight", figurewidth="\\figurewidth")
 
-		plt.show()
+		#plt.show()
