@@ -1,7 +1,6 @@
 import os
 import numpy as np
 import tensorflow as tf
-from tensorflow.python import debug as tf_debug
 import grouping
 import params
 import data
@@ -233,11 +232,11 @@ class Model(object):
 					if is_multi_view:
 						if params.USE_SUMMARY:
 							#summary, opt, scores, descr = sess.run([merged, optimizer, view_discrimination_scores, view_descriptors], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
-							summary, opt, s = sess.run([merged, optimizer, view_discrimination_scores], feed_dict={x: batch_x, y: batch_y, dropout_prob: dropout_prob_value})
+							summary, opt = sess.run([merged, optimizer], feed_dict={x: batch_x, y: batch_y, dropout_prob: dropout_prob_value})
 							train_summary_writer.add_summary(summary, tf.train.global_step(sess, global_step))
 						else:
 							#opt = sess.run([optimizer], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
-							opt, s = sess.run([optimizer, view_discrimination_scores], feed_dict={x: batch_x, y: batch_y, dropout_prob: dropout_prob_value})
+							opt = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, dropout_prob: dropout_prob_value})
 						#loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
 						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, dropout_prob: np.zeros([len(batch_x), 1])})							
 
@@ -256,7 +255,6 @@ class Model(object):
 							return train_loss, train_accuracy, test_accuracy, learning_rate
 
 					#lr = self.update_learning_rate(lr, find_lr)
-				print(s)
 				print("Epoch " + str(i) + ", Loss= " + \
 				          "{:.6f}".format(train_loss[-1]) + ", Training Accuracy= " + \
 				          "{:.5f}".format(acc))
@@ -266,9 +264,11 @@ class Model(object):
 				#divide in batches and calculate mean to prevent OOM error
 				if find_lr is None:
 					epoch_test_accuracy = []
+					batch_test_sizes = []
 					for test_batch in range(int(np.ceil(len(x_test)/batch_size))):
 						batch_x_test = x_test[test_batch*batch_size:min((test_batch+1)*batch_size, len(x_test))]
 						batch_y_test = y_test[test_batch*batch_size:min((test_batch+1)*batch_size, len(y_test))]
+						batch_test_sizes.append(len(batch_x_test))
 						if is_multi_view:
 							if params.USE_SUMMARY:
 								test_acc, valid_loss, summary = sess.run([accuracy, cost, merged], feed_dict={x: batch_x_test, y : batch_y_test, dropout_prob: np.zeros([len(batch_x_test), 1])})
@@ -277,14 +277,16 @@ class Model(object):
 						else:
 							test_acc, valid_loss = sess.run([accuracy,cost], feed_dict={x: batch_x_test, y : batch_y_test, dropout_prob: np.zeros([len(batch_x_test), 1])})
 
-						test_accuracy.append(test_acc)
 						epoch_test_accuracy.append(test_acc)
 
 					#only save latest summary
 					if params.USE_SUMMARY:
 						test_summary_writer.add_summary(summary, tf.train.global_step(sess, global_step))
 
-					print("Testing Accuracy:","{:.5f}".format(np.mean(epoch_test_accuracy)))
+					#weight the accuracy with the current batch size
+					epoch_test_accuracy_avg = np.average(epoch_test_accuracy, weights=batch_test_sizes)
+					test_accuracy.append(epoch_test_accuracy_avg)
+					print("Testing Accuracy:","{:.5f}".format(epoch_test_accuracy_avg))
 			try:
 				saver.save(sess, os.path.join(params.CKPT_PATH, params.CKPT_FILE))
 			except Exception as e:
@@ -306,7 +308,7 @@ class Model(object):
 		group_weights = []
 		correct_predictions = []
 		is_corrects = []
-		correct_label_ids = []
+		pred_label_ids = []
 		classifications = []
 		acts_convs = []
 		
@@ -366,14 +368,14 @@ class Model(object):
 				if labels is not None:
 					batch_y = labels[batch*batch_size:min((batch+1)*batch_size,labels.shape[0])]
 					is_correct = sess.run(correct_prediction, feed_dict={x: batch_x, y: batch_y, dropout_prob: np.zeros([batch_x.shape[0], 1])})
-					correct_label_id = np.argmax(batch_y, axis=1)
+					pred_label_id = np.argmax(classification, axis=1)
 				else:
 					batch_y = [None]*batch_x.shape[0]
 					is_correct = [None]*batch_x.shape[0]
-					correct_label_id = [None]*batch_x.shape[0]
+					pred_label_id = [None]*batch_x.shape[0]
 
 				is_corrects.extend(is_correct)
-				correct_label_ids.extend(correct_label_id)
+				pred_label_ids.extend(pred_label_id)
 				#correct_predictions.append((is_correct, np.argmax(batch_y, axis=1)))
 
 				if is_multi_view:
@@ -394,7 +396,7 @@ class Model(object):
 			view_scores =  np.reshape(view_scores, [-1, n_views])
 			group_ids =  np.reshape(group_ids, [-1, n_views])
 			group_weights =  np.reshape(group_weights, [-1, n_views])
-			correct_predictions =  np.reshape(list(zip(is_corrects, correct_label_ids)), [-1, 2])
+			correct_predictions =  np.reshape(list(zip(is_corrects, pred_label_ids)), [-1, 2])
 			classifications =  np.reshape(classifications, [-1, params.N_CLASSES])
 			acts_convs = np.reshape(acts_convs,  [-1, *acts_convs[0].shape[1:]])
 
