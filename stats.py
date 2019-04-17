@@ -108,19 +108,31 @@ if __name__ == "__main__":
 				f.write("\nGroup Metric:\n")
 			print("\n*** GROUP METRIC ***")
 			#color space is BGR and values are in range [0,1]
-			color_bgr = (0,0,1.)
-			matches = []
-			#get all views and related group ids of certain material label
-			for views, idx in zip(x_test[2::params.DATASET_NUMBER_MATERIALS], group_ids[2::params.DATASET_NUMBER_MATERIALS]):
-				#get view ids of top group
-				idx_top_views = np.argwhere(idx == np.amax(idx)).flatten().tolist()
-				#check for every view in top group if view contains material
-				for i in idx_top_views:
-					match = cv2.inRange(views[i], color_bgr, color_bgr)
-					matches.append(np.any(match))
-			print(np.round(np.mean(matches), 3))
+			colors_bgr = [(0,0,1.), (0,1.,0)]
+			group_metrics = []
+			#check for every material but skip blank one
+			for i in range(1, params.DATASET_NUMBER_MATERIALS):
+				matches = []
+				#get all views and related group ids of certain material label
+				for views, idx in zip(x_test[i::params.DATASET_NUMBER_MATERIALS], group_ids[i::params.DATASET_NUMBER_MATERIALS]):
+					#get view ids of top group
+					idx_top_views = np.argwhere(idx == np.amax(idx)).flatten().tolist()
+					#check for every view in top group if view contains material
+					for j in idx_top_views:
+						match = np.zeros(views[0].shape[0:2])
+						for c in colors_bgr:
+							match = np.logical_or(match, cv2.inRange(views[j], c, c))
+						matches.append(np.any(match))
+				matches_avg = np.mean(matches)
+				#keep track of group metric for each material
+				group_metrics.append(np.mean(matches))
+
+				print("Material{}: {:.3f}".format(i, matches_avg))
+				if arg_write:
+					f.write("{:.3f}\n".format(matches_avg))
+			print("Overall: {:.3f}".format(np.mean(group_metrics)))
 			if arg_write:
-				f.write("{:.3f}\n".format(np.mean(matches)))
+				f.write("{:.3f}\n".format(np.mean(group_metrics)))
 
 		#get several metrics for model evaluation
 		#get label id from one hot encoded labels
