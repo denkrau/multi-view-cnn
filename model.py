@@ -211,6 +211,7 @@ class Model(object):
 			train_loss = []
 			test_loss = []
 			train_accuracy = []
+			epochs_train_accuracy = []
 			test_accuracy = []
 			learning_rate = []
 
@@ -233,7 +234,7 @@ class Model(object):
 						if params.USE_SUMMARY:
 							#summary, opt, scores, descr = sess.run([merged, optimizer, view_discrimination_scores, view_descriptors], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
 							summary, opt = sess.run([merged, optimizer], feed_dict={x: batch_x, y: batch_y, dropout_prob: dropout_prob_value})
-							train_summary_writer.add_summary(summary, tf.train.global_step(sess, global_step))
+							#train_summary_writer.add_summary(summary, tf.train.global_step(sess, global_step))
 						else:
 							#opt = sess.run([optimizer], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
 							opt = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, dropout_prob: dropout_prob_value})
@@ -255,9 +256,27 @@ class Model(object):
 							return train_loss, train_accuracy, test_accuracy, learning_rate
 
 					#lr = self.update_learning_rate(lr, find_lr)
+
+				#Calculate accuracy over whole training set
+				train_batch_sizes = []
+				epoch_train_acc = []
+				for batch in range(int(np.ceil(len(x_train)/batch_size))):
+					batch_x = x_train[batch*batch_size:min((batch+1)*batch_size,len(x_train))]
+					batch_y = y_train[batch*batch_size:min((batch+1)*batch_size,len(y_train))]
+					train_batch_sizes.append(len(x_train))
+					if is_multi_view:
+						if params.USE_SUMMARY:
+							batch_train_acc, summary = sess.run([accuracy, merged], feed_dict={x: batch_x, y : batch_y, dropout_prob: np.zeros([len(batch_x), 1])})
+							train_summary_writer.add_summary(summary)
+						else:
+							batch_train_acc = sess.run(accuracy, feed_dict={x: batch_x, y : batch_y, dropout_prob: np.zeros([len(batch_x), 1])})
+
+					epoch_train_acc.append(batch_train_acc)
+				epochs_train_accuracy.append(np.average(epoch_train_acc, weights=train_batch_sizes))
+
 				print("Epoch " + str(i) + ", Loss= " + \
 				          "{:.6f}".format(train_loss[-1]) + ", Training Accuracy= " + \
-				          "{:.5f}".format(acc))
+				          "{:.5f}".format(epochs_train_accuracy[-1]))
 				#print("Optimization Finished!")
 
 				# Calculate accuracy for all images
@@ -296,7 +315,7 @@ class Model(object):
 			train_summary_writer.close()
 			test_summary_writer.close()
 
-		return train_loss, train_accuracy, test_accuracy, learning_rate
+		return train_loss, train_accuracy, epochs_train_accuracy, test_accuracy, learning_rate
 
 	def predict(self, img, labels=None, get_saliency=True, get_activations=True, n_views=params.N_VIEWS, ckpt_file=None):
 		weights, biases = self.get_weights()

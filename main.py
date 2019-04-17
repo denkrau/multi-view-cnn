@@ -82,13 +82,14 @@ if __name__ == "__main__":
 
 		#multi_view_dataset = copy.deepcopy(set)
 		multi_view_dataset = data.single_to_multi_view(*dataset, params.N_VIEWS)
-		train_loss, train_accuracy, test_accuracy, learning_rate = model.train(x_mv, y, multi_view_dataset, weights, biases, arg_ckpt)
+		train_loss, train_accuracy, epochs_train_accuracy, test_accuracy, learning_rate = model.train(x_mv, y, multi_view_dataset, weights, biases, arg_ckpt)
 
 	if params.USE_PYPLOT:
 		path = os.path.join(params.RESULTS_PATH, "models", os.path.basename(params.CKPT_PATH))
 		if not os.path.isdir(path):
 			os.makedirs(path)
-		np.savez(os.path.join(path, "raw_data.npz"), loss=train_loss, training_accuracy=train_accuracy, testing_accuracy=test_accuracy)
+		np.savez(os.path.join(path, "raw_data.npz"), loss=train_loss, training_accuracy=train_accuracy, epochs_training_accuracy=epochs_train_accuracy, testing_accuracy=test_accuracy)
+
 		plt.figure(0)
 		plt.xlabel("Iterations")
 		plt.ylabel("Loss")
@@ -100,16 +101,26 @@ if __name__ == "__main__":
 		save_tikz(os.path.join(path, "loss.tikz"), figureheight="\\figureheight", figurewidth="\\figurewidth")
 
 		plt.figure(1)
-		plt.xlabel("Iterations")
+		plt.xlabel("Epochs")
 		plt.ylabel("Accuracy")
-		plt.plot(train_accuracy, "g-", label="Training Accuracy", alpha=0.2)
-		plt.plot(moving_average(train_accuracy, moving_average_window_size, use_fraction=True), "g-", label="Training Accuracy MA")
+		plt.plot(epochs_train_accuracy, "g-", label="Training Accuracy", alpha=0.2)
+		plt.plot(moving_average(epochs_train_accuracy, moving_average_window_size, use_fraction=True), "g-", label="Training Accuracy MA")
 		plt.legend()
 		plt.tight_layout()
-		plt.savefig(os.path.join(path, "training_accuracy.png"))
-		save_tikz(os.path.join(path, "training_accuracy.tikz"), figureheight="\\figureheight", figurewidth="\\figurewidth")
+		plt.savefig(os.path.join(path, "epochs_training_accuracy.png"))
+		save_tikz(os.path.join(path, "epochs_training_accuracy.tikz"), figureheight="\\figureheight", figurewidth="\\figurewidth")
 
 		plt.figure(2)
+		plt.xlabel("Epochs")
+		plt.ylabel("Accuracy")
+		plt.plot(test_accuracy, "g-", label="Testing Accuracy", alpha=0.2)
+		plt.plot(moving_average(test_accuracy, moving_average_window_size, use_fraction=True), "g-", label="Testing Accuracy MA")
+		plt.legend()
+		plt.tight_layout()
+		plt.savefig(os.path.join(path, "testing_accuracy.png"))
+		save_tikz(os.path.join(path, "testing_accuracy.tikz"), figureheight="\\figureheight", figurewidth="\\figurewidth")
+
+		plt.figure(3)
 		plt.xlabel("Epochs")
 		plt.ylabel("Accuracy")
 		plt.plot(test_accuracy, "g-", label="Testing Accuracy", alpha=0.2)
