@@ -171,6 +171,6 @@ if __name__ == "__main__":
 			path = os.path.join(params.RESULTS_PATH, "models", os.path.basename(params.CKPT_PATH))
 			is_correct, pred_id = np.split(correct_predictions, indices_or_sections=2, axis=1)
 			with open(os.path.join(path, "misclassifications.txt"), "w") as f:
-				misclassifications = [[n, p] for n, c, p in zip(data.get_filenames(), is_correct, pred_id) if not c]
+				misclassifications = [[n, p] for n, c, p in zip(data.get_filenames()[1], is_correct, pred_id) if not c]
 				for n, p in misclassifications:
 					f.write("{} {}\n".format(n, labels[p[0]]))

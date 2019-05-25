@@ -8,6 +8,10 @@ import matplotlib.pyplot as plt
 
 class Data(object):
 
+	def __init__(self):
+		self.filenames_train = []
+		self.filenames_test = []
+
 	def get_dataset(self, path, train=True, test=True, one_hot=None, create_labels=False):
 		#create lists to store training and test data
 		x_train = []
@@ -67,6 +71,7 @@ class Data(object):
 					if img.shape[0] != params.IMAGE_SIZE and img.shape[1] != params.IMAGE_SIZE:
 						img = cv2.resize(img, (params.IMAGE_SIZE, params.IMAGE_SIZE), interpolation=cv2.INTER_AREA)
 					if set_ == "train" and train:
+						self.filenames_train.append(os.path.join(root, file))
 						x_train.append(img)
 						#add label depending on number of categories and materials
 						if has_categories and has_materials:
@@ -79,6 +84,7 @@ class Data(object):
 						elif has_categories and not has_materials:
 							y_train.append(labels.index(label_cat))
 					elif set_ == "test" and test:
+						self.filenames_test.append(os.path.join(root, file))
 						x_test.append(img)
 						if has_categories and has_materials:
 							if params.DATASET_IS_SINGLELABEL:
@@ -174,3 +180,9 @@ class Data(object):
 				n_objects_train.append(int(len(files)/params.N_VIEWS))
 
 		return n_objects_train, n_objects_test
+
+	def get_filenames(self, compress=True):
+		if compress:
+			return self.filenames_train[0::params.N_VIEWS], self.filenames_test[0::params.N_VIEWS]
+		else:
+			return self.filenames_train, self.filenames_test
