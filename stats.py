@@ -136,15 +136,15 @@ if __name__ == "__main__":
 
 		#get several metrics for model evaluation
 		#get label id from one hot encoded labels
-		y_test_id = np.argmax(y_test, axis=1)
+		y_test_ids = np.argmax(y_test, axis=1)
 
 		#classification report contains precision, recall and f1-score for each category
-		classification_report = metrics.classification_report(y_test_id, correct_label_ids, target_names=labels)
+		classification_report = metrics.classification_report(y_test_ids, correct_label_ids, target_names=labels)
 		print("\n*** CLASSIFICATION REPORT ***")
 		print(classification_report)
 
 		#confusion score counts right and wrong prediction per category
-		confusion_score = metrics.confusion_matrix(y_test_id, correct_label_ids).tolist()
+		confusion_score = metrics.confusion_matrix(y_test_ids, correct_label_ids).tolist()
 		#make the output pretty
 		for i, line in enumerate(confusion_score):
 			line.insert(0, labels[i])
@@ -166,6 +166,11 @@ if __name__ == "__main__":
 		if arg_write:
 			f.close()
 
-
-
-
+		#save filenames of wrong predictions to disk
+		if arg_write:
+			path = os.path.join(params.RESULTS_PATH, "models", os.path.basename(params.CKPT_PATH))
+			is_correct, pred_id = np.split(correct_predictions, indices_or_sections=2, axis=1)
+			with open(os.path.join(path, "misclassifications.txt"), "w") as f:
+				misclassifications = [[n, p] for n, c, p in zip(data.get_filenames(), is_correct, pred_id) if not c]
+				for n, p in misclassifications:
+					f.write("{} {}\n".format(n, labels[p[0]]))
