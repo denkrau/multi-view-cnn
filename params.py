@@ -35,7 +35,7 @@ TRAINING_EPOCHS = 20
 BATCH_SIZE_SINGLE = 128
 BATCH_SIZE_MULTI = 8
 DROPOUT_PROB = 0.5
-CKPT_PATH = os.path.join("checkpoints", "mn-sl-1-3-20")
+CKPT_PATH = os.path.join("checkpoints", "mn-sl-0-3-20_alexnet")
 CKPT_FILE = "model.ckpt"
 CKPT_OVERWRITE = True
 

@@ -24,7 +24,7 @@ class Model(object):
 			conv5: output of fifth convolutional layer; shape [1, 6, 6, 512]
 		"""
 		with tf.name_scope("conv1"):
-			conv1 = self.conv2d(x, weights['wc1'], biases['bc1'], strides=2, padding="VALID") #(1, 109, 109, 96)
+			conv1 = self.conv2d(x, weights['wc1'], biases['bc1'], strides=4, padding="VALID") #(1, 109, 109, 96)
 			activations = conv1
 			conv1 = self.max_pool2d(conv1, size=3, strides=2, padding="VALID") #(1, 54, 54, 96)
 		with tf.name_scope("conv2"):
@@ -433,16 +433,16 @@ class Model(object):
 				weights = {
 					#shape = (filter_size_row, filter_size_col, channels of input, number of convs)
 					#vgg-m
-					"wc1": tf.get_variable("W0", shape=(7,7,params.IMAGE_CHANNELS,96), initializer=tf.contrib.layers.xavier_initializer()),
+					"wc1": tf.get_variable("W0", shape=(11,11,params.IMAGE_CHANNELS,96), initializer=tf.contrib.layers.xavier_initializer()),
 					"wc2": tf.get_variable("W1", shape=(5,5,96,256), initializer=tf.contrib.layers.xavier_initializer()),
 					"wc3": tf.get_variable("W2", shape=(3,3,256,384), initializer=tf.contrib.layers.xavier_initializer()),
 					"wc4": tf.get_variable("W3", shape=(3,3,384,384), initializer=tf.contrib.layers.xavier_initializer()),
 					"wc5": tf.get_variable("W4", shape=(3,3,384,256), initializer=tf.contrib.layers.xavier_initializer()),
-					"wd1": tf.get_variable("W5", shape=(6*6*256, 4096), initializer=tf.contrib.layers.xavier_initializer()),
+					"wd1": tf.get_variable("W5", shape=(2*2*256, 4096), initializer=tf.contrib.layers.xavier_initializer()),
 					"wd2": tf.get_variable("W6", shape=(4096, 4096), initializer=tf.contrib.layers.xavier_initializer()),
 					"wd3": tf.get_variable("W7", shape=(4096, params.N_CLASSES), initializer=tf.contrib.layers.xavier_initializer()),
 					#grouping module
-					"wd4": tf.get_variable("W8", shape=(6*6*256, 1), initializer=tf.contrib.layers.xavier_initializer())
+					"wd4": tf.get_variable("W8", shape=(2*2*256, 1), initializer=tf.contrib.layers.xavier_initializer())
 				}
 			with tf.name_scope("biases"):
 				biases = {
