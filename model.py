@@ -208,11 +208,12 @@ class Model(object):
 			train_summary_writer = tf.summary.FileWriter(os.path.join(params.SUMMARY_PATH, "train"), sess.graph)
 			test_summary_writer = tf.summary.FileWriter(os.path.join(params.SUMMARY_PATH, "test"), sess.graph)
 
-			train_loss = []
-			test_loss = []
-			train_accuracy = []
+			train_batch_loss = []
+			train_batch_accuracy = []
 			epochs_train_accuracy = []
-			test_accuracy = []
+			epochs_train_loss = []
+			epochs_test_loss = []
+			epochs_test_accuracy = []
 			learning_rate = []
 
 			for i in range(params.TRAINING_EPOCHS if find_lr is None else 100):
@@ -247,65 +248,70 @@ class Model(object):
 						#loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
 						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, dropout_prob: np.zeros([len(batch_x), 1])})
 
-					train_loss.append(loss)
-					train_accuracy.append(acc)
+					train_batch_loss.append(loss)
+					train_batch_accuracy.append(acc)
 
 					#finding learning rate is active, therefore break if latest loss is much larger than loss before
 					if find_lr is not None and i > 0:
-						if train_loss[-1] > 4 * train_loss[-2]:
-							return train_loss, train_accuracy, test_accuracy, learning_rate
+						if train_batch_loss[-1] > 4 * train_batch_loss[-2]:
+							return train_batch_loss, train_batch_accuracy, epochs_test_accuracy, learning_rate
 
 					#lr = self.update_learning_rate(lr, find_lr)
 
 				#Calculate accuracy over whole training set
 				train_batch_sizes = []
 				epoch_train_acc = []
+				epoch_train_loss = []
 				for batch in range(int(np.ceil(len(x_train)/batch_size))):
 					batch_x = x_train[batch*batch_size:min((batch+1)*batch_size,len(x_train))]
 					batch_y = y_train[batch*batch_size:min((batch+1)*batch_size,len(y_train))]
 					train_batch_sizes.append(len(x_train))
 					if is_multi_view:
 						if params.USE_SUMMARY:
-							batch_train_acc, summary = sess.run([accuracy, merged], feed_dict={x: batch_x, y : batch_y, dropout_prob: np.zeros([len(batch_x), 1])})
+							train_acc, train_loss, summary = sess.run([accuracy, cost, merged], feed_dict={x: batch_x, y : batch_y, dropout_prob: np.zeros([len(batch_x), 1])})
 							train_summary_writer.add_summary(summary)
 						else:
-							batch_train_acc = sess.run(accuracy, feed_dict={x: batch_x, y : batch_y, dropout_prob: np.zeros([len(batch_x), 1])})
+							train_acc, train_loss = sess.run([accuracy, cost], feed_dict={x: batch_x, y : batch_y, dropout_prob: np.zeros([len(batch_x), 1])})
 
-					epoch_train_acc.append(batch_train_acc)
+					epoch_train_acc.append(train_acc)
+					epoch_train_loss.append(train_loss)
+
 				epochs_train_accuracy.append(np.average(epoch_train_acc, weights=train_batch_sizes))
+				epochs_train_loss.append(np.average(epoch_train_loss, weights=train_batch_sizes))
 
-				print("Epoch " + str(i) + ", Loss= " + \
-				          "{:.6f}".format(train_loss[-1]) + ", Training Accuracy= " + \
-				          "{:.5f}".format(epochs_train_accuracy[-1]))
-				#print("Optimization Finished!")
-
-				# Calculate accuracy for all images
+				print("Epoch {}, Loss {:.6f}, Last Batch Loss {:.6f}, Training Accuracy {:.5f}".format(i, epochs_train_loss[-1], train_batch_loss[-1], epochs_train_accuracy[-1]))
+				
+				#Calculate accuracy for all validation/testing images
 				#divide in batches and calculate mean to prevent OOM error
 				if find_lr is None:
-					epoch_test_accuracy = []
 					batch_test_sizes = []
+					test_batches_accuracy = []
+					test_batches_loss = []
 					for test_batch in range(int(np.ceil(len(x_test)/batch_size))):
 						batch_x_test = x_test[test_batch*batch_size:min((test_batch+1)*batch_size, len(x_test))]
 						batch_y_test = y_test[test_batch*batch_size:min((test_batch+1)*batch_size, len(y_test))]
 						batch_test_sizes.append(len(batch_x_test))
 						if is_multi_view:
 							if params.USE_SUMMARY:
-								test_acc, valid_loss, summary = sess.run([accuracy, cost, merged], feed_dict={x: batch_x_test, y : batch_y_test, dropout_prob: np.zeros([len(batch_x_test), 1])})
+								test_acc, test_loss, summary = sess.run([accuracy, cost, merged], feed_dict={x: batch_x_test, y : batch_y_test, dropout_prob: np.zeros([len(batch_x_test), 1])})
 							else:
-								test_acc, valid_loss = sess.run([accuracy, cost], feed_dict={x: batch_x_test, y : batch_y_test, dropout_prob: np.zeros([len(batch_x_test), 1])})
+								test_acc, test_loss = sess.run([accuracy, cost], feed_dict={x: batch_x_test, y : batch_y_test, dropout_prob: np.zeros([len(batch_x_test), 1])})
 						else:
-							test_acc, valid_loss = sess.run([accuracy,cost], feed_dict={x: batch_x_test, y : batch_y_test, dropout_prob: np.zeros([len(batch_x_test), 1])})
+							test_acc, test_loss = sess.run([accuracy,cost], feed_dict={x: batch_x_test, y : batch_y_test, dropout_prob: np.zeros([len(batch_x_test), 1])})
 
-						epoch_test_accuracy.append(test_acc)
+						test_batches_loss.append(test_loss)
+						test_batches_accuracy.append(test_acc)
 
 					#only save latest summary
 					if params.USE_SUMMARY:
 						test_summary_writer.add_summary(summary, tf.train.global_step(sess, global_step))
 
-					#weight the accuracy with the current batch size
-					epoch_test_accuracy_avg = np.average(epoch_test_accuracy, weights=batch_test_sizes)
-					test_accuracy.append(epoch_test_accuracy_avg)
-					print("Testing Accuracy:","{:.5f}".format(epoch_test_accuracy_avg))
+					#weight the loss and accuracy with the current batch size
+					epoch_test_accuracies_avg = np.average(test_batches_accuracy, weights=batch_test_sizes)
+					epoch_test_losses_avg = np.average(test_batches_loss, weights=batch_test_sizes)
+					epochs_test_accuracy.append(epoch_test_accuracies_avg)
+					epochs_test_loss.append(epoch_test_losses_avg)
+					print("Testing Loss: {:.6f}, Testing Accuracy: {:.5f}".format(epoch_test_losses_avg, epoch_test_accuracies_avg))
 			try:
 				saver.save(sess, os.path.join(params.CKPT_PATH, params.CKPT_FILE))
 			except Exception as e:
@@ -315,7 +321,7 @@ class Model(object):
 			train_summary_writer.close()
 			test_summary_writer.close()
 
-		return train_loss, train_accuracy, epochs_train_accuracy, test_accuracy, learning_rate
+		return train_batch_loss, train_batch_accuracy, epochs_train_loss, epochs_train_accuracy, epochs_test_accuracy, epochs_test_loss, learning_rate
 
 	def predict(self, img, labels=None, get_saliency=True, get_activations=True, n_views=params.N_VIEWS, ckpt_file=None):
 		weights, biases = self.get_weights()
