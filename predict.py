@@ -60,8 +60,6 @@ if __name__ == "__main__":
 	arg_features = False
 	arg_write = False
 	rows_in_plot = 2
-	#figsize = (13,6)
-	figsize = (6.2, 2.5)
 	try:
 		args, values = getopt.getopt(args, unixOptions, gnuOptions)
 	except getopt.error as err:
@@ -151,8 +149,7 @@ if __name__ == "__main__":
 			if arg_groups or arg_write:
 				groups = sorted(zip(views, scores, group_ids, saliency), key=lambda x: (x[2], x[1]))
 				_, idx = np.unique([i[2] for i in groups], return_index=True)
-				fig, ax = plt.subplots(rows_in_plot, int(arg_views/rows_in_plot), figsize=figsize, dpi=100)
-				plt.subplots_adjust(hspace=0.5)
+				fig, ax = plt.subplots(rows_in_plot, int(arg_views/rows_in_plot), figsize=(6.2, 3.2), dpi=100)
 				ax = ax.reshape(-1)
 				for i in range(arg_views):
 					if i in idx:
@@ -174,7 +171,7 @@ if __name__ == "__main__":
 			if scores.size and group_ids.size and group_weights.size:
 				groups = sorted(zip(views, scores, group_ids, saliency), key=lambda x: (x[2], x[1]))
 				saliency = [s[3] for s in groups]
-			fig, ax = plt.subplots(rows_in_plot, int(arg_views/rows_in_plot), figsize=figsize, dpi=100)
+			fig, ax = plt.subplots(rows_in_plot, int(arg_views/rows_in_plot), figsize=(6.2, 2), dpi=100)
 			plt.subplots_adjust()
 			ax = ax.reshape(-1)
 			for i in range(arg_views):
