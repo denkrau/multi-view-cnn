@@ -14,6 +14,8 @@ from matplotlib2tikz import save as save_tikz
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 path_predictions = os.path.join(params.RESULTS_PATH, "Predictions")
 matplotlib.rcParams["savefig.directory"] = path_predictions
+plt.rc('text', usetex=True)
+plt.rcParams["font.family"] = ["Latin Modern Roman"]
 
 def get_save_path(fill="", ckpt_file=None):
 	"""Creates a path where to save plots that is related to the used checkpoint
@@ -57,6 +59,7 @@ if __name__ == "__main__":
 	arg_ckpt = None
 	arg_features = False
 	arg_write = False
+	rows_in_plot = 2
 	try:
 		args, values = getopt.getopt(args, unixOptions, gnuOptions)
 	except getopt.error as err:
@@ -146,12 +149,13 @@ if __name__ == "__main__":
 			if arg_groups or arg_write:
 				groups = sorted(zip(views, scores, group_ids, saliency), key=lambda x: (x[2], x[1]))
 				_, idx = np.unique([i[2] for i in groups], return_index=True)
-				fig, ax = plt.subplots(1, arg_views, figsize=(15,2), dpi=100)
+				fig, ax = plt.subplots(rows_in_plot, int(arg_views/rows_in_plot), figsize=(6.2, 3.2), dpi=100)
+				ax = ax.reshape(-1)
 				for i in range(arg_views):
 					if i in idx:
-						ax[i].text(0.5, 1.1, round(group_weights[groups[i][2]], 3), size=12, ha="center", transform=ax[i].transAxes)
+						ax[i].text(0.02, 1.1, "G{}: {:.3f}".format(np.argwhere(idx==i)[0][0]+1 ,group_weights[groups[i][2]]), size=12, ha="left", transform=ax[i].transAxes)
 						#ax[i].text(0.5, 1.1, str(round(group_weights[groups[i][2]], 3))+"~"+str(round(group_weights[groups[i][2]]/np.max(group_weights), 3)), size=12, ha="center", transform=ax[i].transAxes)
-					ax[i].text(0.5,-0.15, round(groups[i][1], 3), size=12, ha="center", transform=ax[i].transAxes)
+					ax[i].text(0.5,-0.19, round(groups[i][1], 3), size=12, ha="center", transform=ax[i].transAxes)
 					ax[i].xaxis.set_major_locator(plt.NullLocator())
 					ax[i].yaxis.set_major_locator(plt.NullLocator())
 					ax[i].imshow(groups[i][0][:,:,[2,1,0]], cmap="gray", vmin=0, vmax=1)
@@ -167,7 +171,9 @@ if __name__ == "__main__":
 			if scores.size and group_ids.size and group_weights.size:
 				groups = sorted(zip(views, scores, group_ids, saliency), key=lambda x: (x[2], x[1]))
 				saliency = [s[3] for s in groups]
-			fig, ax = plt.subplots(1, arg_views, figsize=(15,2), dpi=100)
+			fig, ax = plt.subplots(rows_in_plot, int(arg_views/rows_in_plot), figsize=(6.2, 2), dpi=100)
+			plt.subplots_adjust()
+			ax = ax.reshape(-1)
 			for i in range(arg_views):
 				ax[i].xaxis.set_major_locator(plt.NullLocator())
 				ax[i].yaxis.set_major_locator(plt.NullLocator())
@@ -190,8 +196,8 @@ if __name__ == "__main__":
 			n_filter = activation_convs.shape[-1]
 			grid_size = np.ceil(np.sqrt(n_filter)).astype(int)
 			for v in range(params.N_VIEWS):
-				fig, axes = plt.subplots(grid_size, grid_size, figsize=(15,8), dpi=100)
-				fig.subplots_adjust(left=0.01, right=0.99, top=0.99, bottom=0.01)
+				fig, axes = plt.subplots(grid_size, grid_size, figsize=(6.2,8), dpi=100)
+				fig.subplots_adjust(left=0.01, right=0.99, top=0.99, bottom=0.01, wspace=0.1)
 				axes = axes.reshape([-1])
 				for i, ax in enumerate(axes):
 					if i < n_filter:
