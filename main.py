@@ -61,7 +61,10 @@ if __name__ == "__main__":
 	model = model.Model()
 
 	#get modelnet dataset splitted in training and testing set
-	dataset = data.get_dataset(params.DATASET_PATH, one_hot=True, create_labels=True)
+	if params.DATASET_LOAD_DYNAMIC:
+		dataset = data.get_dynamic_dataset(params.DATASET_PATH, one_hot=True, create_labels=True)
+	else:
+		dataset = data.get_dataset(params.DATASET_PATH, one_hot=True, create_labels=True)
 
 	#get weights
 	weights, biases = model.get_weights()
@@ -81,7 +84,11 @@ if __name__ == "__main__":
 		y = tf.placeholder(tf.float32, (None, params.N_CLASSES), name="y")
 
 		#multi_view_dataset = copy.deepcopy(set)
-		multi_view_dataset = data.single_to_multi_view(*dataset, params.N_VIEWS)
+		#multi_view_dataset = data.single_to_multi_view(*dataset, params.N_VIEWS)
+		if params.DATASET_LOAD_DYNAMIC:
+			multi_view_dataset = dataset
+		else:
+			multi_view_dataset = data.single_to_multi_view(*dataset, params.N_VIEWS)
 		#train_batch_loss, train_batch_accuracy, epochs_train_loss, epochs_train_accuracy, epochs_test_accuracy, epochs_test_loss, learning_rate
 		train_batches_loss, train_batches_accuracy, epochs_train_loss, epochs_train_accuracy, epochs_test_accuracy, epochs_test_loss, learning_rate = model.train(x_mv, y, multi_view_dataset, weights, biases, arg_ckpt)
 
@@ -89,7 +96,7 @@ if __name__ == "__main__":
 		path = os.path.join(params.RESULTS_PATH, "models", os.path.basename(params.CKPT_PATH))
 		if not os.path.isdir(path):
 			os.makedirs(path)
-		np.savez(os.path.join(path, "raw_data.npz"), train_batches_loss=train_batches_loss, train_batches_accuracy=train_batches_accuracy, epochs_train_accuracy=epochs_train_accuracy, epochs_train_loss=epochs_train_loss, epochs_test_accuracy=epochs_test_accuracy)
+		np.savez(os.path.join(path, "raw_data.npz"), train_batches_loss=train_batches_loss, train_batches_accuracy=train_batches_accuracy, epochs_train_accuracy=epochs_train_accuracy, epochs_train_loss=epochs_train_loss, epochs_test_accuracy=epochs_test_accuracy, epochs_test_loss=epochs_test_loss)
 
 		plt.figure(0)
 		plt.xlabel("Iteration")

@@ -23,6 +23,7 @@ DATASET_IS_SINGLELABEL = True
 DATASET_LABELS_FILE = os.path.join(DATASET_PATH, "labels.txt")
 IMAGE_SIZE = 224
 IMAGE_CHANNELS = 3
+DATASET_LOAD_DYNAMIC = True
 
 # Model
 #LEARNING_RATE_TYPES = ["Fixed", "exp", "cyclic", "cos_cyclic"]
