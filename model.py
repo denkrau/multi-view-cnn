@@ -179,9 +179,13 @@ class Model(object):
 		else:
 			cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=pred, labels=y))
 
-		#learning_rate = tf.placeholder(tf.float32, ())
-		learning_rate = params.LEARNING_RATE
-		optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost, global_step=global_step)
+		if find_lr:
+			learning_rate = tf.placeholder(tf.float32, ())
+			optimizer = tf.train.GradientDescentOptimizer(learning_rate=learning_rate).minimize(cost)
+		else:
+			learning_rate = params.LEARNING_RATE
+			optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost, global_step=global_step)
+
 
 		if params.DATASET_IS_SINGLELABEL:
 			correct_prediction = tf.equal(tf.argmax(pred, 1), tf.argmax(y, 1))
@@ -199,7 +203,8 @@ class Model(object):
 		#config = tf.ConfigProto()
 		#config.gpu_options.allow_growth = True
 		with tf.Session() as sess:
-			#lr = self.get_learning_rate(find_lr)
+			if find_lr:
+				lr = self.get_learning_rate(find_lr)
 			if ckpt is None:
 				sess.run(init)
 			else:
@@ -214,7 +219,7 @@ class Model(object):
 			epochs_train_loss = []
 			epochs_test_loss = []
 			epochs_test_accuracy = []
-			learning_rate = []
+			learning_rates = []
 
 			for i in range(params.TRAINING_EPOCHS if find_lr is None else 100):
 				x_train, y_train = self.data.shuffle(x_train, y_train)
@@ -224,7 +229,12 @@ class Model(object):
 					print("Epoch", i, "Batch", batch, "of", len(x_train)//batch_size, end="\r")
 					batch_x = x_train[batch*batch_size:min((batch+1)*batch_size,len(x_train))]
 					batch_y = y_train[batch*batch_size:min((batch+1)*batch_size,len(y_train))]
-					#learning_rates.append(lr)
+
+					if params.DATASET_LOAD_DYNAMIC:
+						batch_x, batch_y = self.data.load_dynamic_dataset(batch_x, batch_y, batch)
+
+					if find_lr:
+						learning_rates.append(lr)
 					# Run optimization op (backprop).
 					    # Calculate batch loss and accuracy
 					dropout_prob_value = np.full([len(batch_x), 1], params.DROPOUT_PROB)
@@ -233,30 +243,39 @@ class Model(object):
 					loss = None
 					if is_multi_view:
 						if params.USE_SUMMARY:
-							#summary, opt, scores, descr = sess.run([merged, optimizer, view_discrimination_scores, view_descriptors], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
-							summary, opt = sess.run([merged, optimizer], feed_dict={x: batch_x, y: batch_y, dropout_prob: dropout_prob_value})
-							#train_summary_writer.add_summary(summary, tf.train.global_step(sess, global_step))
+							if find_lr:
+								summary, opt = sess.run([merged, optimizer], feed_dict={x: batch_x, y: batch_y, dropout_prob: dropout_prob_value, learning_rate: lr})
+							else:
+								summary, opt = sess.run([merged, optimizer], feed_dict={x: batch_x, y: batch_y, dropout_prob: dropout_prob_value})
+								#train_summary_writer.add_summary(summary, tf.train.global_step(sess, global_step))
 						else:
-							#opt = sess.run([optimizer], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
-							opt = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, dropout_prob: dropout_prob_value})
-						#loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
-						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, dropout_prob: np.zeros([len(batch_x), 1])})							
+							if find_lr:
+								opt = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, dropout_prob: dropout_prob_value, learning_rate: lr})
+							else:
+								opt = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, dropout_prob: dropout_prob_value})
+						if find_lr:
+							loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, dropout_prob: np.zeros([len(batch_x), 1]), learning_rate: lr})
+						else:
+							loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, dropout_prob: np.zeros([len(batch_x), 1])})							
 
 					else:
-						#opt = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
-						opt = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, dropout_prob: dropout_prob_value})
-						#loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
-						loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, dropout_prob: np.zeros([len(batch_x), 1])})
+						if find_lr:
+							opt = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
+							loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, learning_rate: lr})
+						else:
+							opt = sess.run(optimizer, feed_dict={x: batch_x, y: batch_y, dropout_prob: dropout_prob_value})
+							loss, acc = sess.run([cost, accuracy], feed_dict={x: batch_x, y: batch_y, dropout_prob: np.zeros([len(batch_x), 1])})
 
 					train_batch_loss.append(loss)
 					train_batch_accuracy.append(acc)
 
 					#finding learning rate is active, therefore break if latest loss is much larger than loss before
 					if find_lr is not None and i > 0:
-						if train_batch_loss[-1] > 4 * train_batch_loss[-2]:
-							return train_batch_loss, train_batch_accuracy, epochs_test_accuracy, learning_rate
-
-					#lr = self.update_learning_rate(lr, find_lr)
+						if train_batch_loss[-1] > 4 * train_batch_loss[-3]:
+							return train_batch_loss, train_batch_accuracy, epochs_test_accuracy, learning_rates
+					
+					if find_lr:
+						lr = self.update_learning_rate(lr, find_lr)
 
 				#Calculate accuracy over whole training set
 				train_batch_sizes = []
@@ -265,6 +284,8 @@ class Model(object):
 				for batch in range(int(np.ceil(len(x_train)/batch_size))):
 					batch_x = x_train[batch*batch_size:min((batch+1)*batch_size,len(x_train))]
 					batch_y = y_train[batch*batch_size:min((batch+1)*batch_size,len(y_train))]
+					if params.DATASET_LOAD_DYNAMIC:
+						batch_x, batch_y = self.data.load_dynamic_dataset(batch_x, batch_y, batch)
 					train_batch_sizes.append(len(x_train))
 					if is_multi_view:
 						if params.USE_SUMMARY:
@@ -290,6 +311,8 @@ class Model(object):
 					for test_batch in range(int(np.ceil(len(x_test)/batch_size))):
 						batch_x_test = x_test[test_batch*batch_size:min((test_batch+1)*batch_size, len(x_test))]
 						batch_y_test = y_test[test_batch*batch_size:min((test_batch+1)*batch_size, len(y_test))]
+						if params.DATASET_LOAD_DYNAMIC:
+							batch_x_test, batch_y_test = self.data.load_dynamic_dataset(batch_x_test, batch_y_test, test_batch)
 						batch_test_sizes.append(len(batch_x_test))
 						if is_multi_view:
 							if params.USE_SUMMARY:
@@ -433,29 +456,29 @@ class Model(object):
 				weights = {
 					#shape = (filter_size_row, filter_size_col, channels of input, number of convs)
 					#vgg-m
-					"wc1": tf.get_variable("W0", shape=(7,7,params.IMAGE_CHANNELS,96), initializer=tf.contrib.layers.xavier_initializer()),
-					"wc2": tf.get_variable("W1", shape=(5,5,96,256), initializer=tf.contrib.layers.xavier_initializer()),
-					"wc3": tf.get_variable("W2", shape=(3,3,256,384), initializer=tf.contrib.layers.xavier_initializer()),
-					"wc4": tf.get_variable("W3", shape=(3,3,384,384), initializer=tf.contrib.layers.xavier_initializer()),
-					"wc5": tf.get_variable("W4", shape=(3,3,384,256), initializer=tf.contrib.layers.xavier_initializer()),
-					"wd1": tf.get_variable("W5", shape=(6*6*256, 4096), initializer=tf.contrib.layers.xavier_initializer()),
-					"wd2": tf.get_variable("W6", shape=(4096, 4096), initializer=tf.contrib.layers.xavier_initializer()),
-					"wd3": tf.get_variable("W7", shape=(4096, params.N_CLASSES), initializer=tf.contrib.layers.xavier_initializer()),
+					"wc1": tf.get_variable("W0", shape=(7,7,params.IMAGE_CHANNELS,96), initializer=tf.contrib.layers.variance_scaling_initializer()),
+					"wc2": tf.get_variable("W1", shape=(5,5,96,256), initializer=tf.contrib.layers.variance_scaling_initializer()),
+					"wc3": tf.get_variable("W2", shape=(3,3,256,384), initializer=tf.contrib.layers.variance_scaling_initializer()),
+					"wc4": tf.get_variable("W3", shape=(3,3,384,384), initializer=tf.contrib.layers.variance_scaling_initializer()),
+					"wc5": tf.get_variable("W4", shape=(3,3,384,256), initializer=tf.contrib.layers.variance_scaling_initializer()),
+					"wd1": tf.get_variable("W5", shape=(6*6*256, 4096), initializer=tf.contrib.layers.variance_scaling_initializer()),
+					"wd2": tf.get_variable("W6", shape=(4096, 4096), initializer=tf.contrib.layers.variance_scaling_initializer()),
+					"wd3": tf.get_variable("W7", shape=(4096, params.N_CLASSES), initializer=tf.contrib.layers.variance_scaling_initializer()),
 					#grouping module
-					"wd4": tf.get_variable("W8", shape=(6*6*256, 1), initializer=tf.contrib.layers.xavier_initializer())
+					"wd4": tf.get_variable("W8", shape=(6*6*256, 1), initializer=tf.contrib.layers.variance_scaling_initializer())
 				}
 			with tf.name_scope("biases"):
 				biases = {
-					'bc1': tf.get_variable('B0', shape=(96), initializer=tf.contrib.layers.xavier_initializer()),
-					'bc2': tf.get_variable('B1', shape=(256), initializer=tf.contrib.layers.xavier_initializer()),
-					'bc3': tf.get_variable('B2', shape=(384), initializer=tf.contrib.layers.xavier_initializer()),
-					'bc4': tf.get_variable('B3', shape=(384), initializer=tf.contrib.layers.xavier_initializer()),
-					'bc5': tf.get_variable('B4', shape=(256), initializer=tf.contrib.layers.xavier_initializer()),
-					'bd1': tf.get_variable('B5', shape=(4096), initializer=tf.contrib.layers.xavier_initializer()),
-					'bd2': tf.get_variable('B6', shape=(4096), initializer=tf.contrib.layers.xavier_initializer()),
-					'bd3': tf.get_variable('B7', shape=(params.N_CLASSES), initializer=tf.contrib.layers.xavier_initializer()),
+					'bc1': tf.get_variable('B0', shape=(96), initializer=tf.contrib.layers.variance_scaling_initializer()),
+					'bc2': tf.get_variable('B1', shape=(256), initializer=tf.contrib.layers.variance_scaling_initializer()),
+					'bc3': tf.get_variable('B2', shape=(384), initializer=tf.contrib.layers.variance_scaling_initializer()),
+					'bc4': tf.get_variable('B3', shape=(384), initializer=tf.contrib.layers.variance_scaling_initializer()),
+					'bc5': tf.get_variable('B4', shape=(256), initializer=tf.contrib.layers.variance_scaling_initializer()),
+					'bd1': tf.get_variable('B5', shape=(4096), initializer=tf.contrib.layers.variance_scaling_initializer()),
+					'bd2': tf.get_variable('B6', shape=(4096), initializer=tf.contrib.layers.variance_scaling_initializer()),
+					'bd3': tf.get_variable('B7', shape=(params.N_CLASSES), initializer=tf.contrib.layers.variance_scaling_initializer()),
 					#grouping module
-					'bd4': tf.get_variable('B8', shape=(1), initializer=tf.contrib.layers.xavier_initializer())
+					'bd4': tf.get_variable('B8', shape=(1), initializer=tf.contrib.layers.variance_scaling_initializer())
 				}
 		return weights, biases
 

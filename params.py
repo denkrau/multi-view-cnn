@@ -15,14 +15,15 @@ def get_number_labels():
 	return n_classes
 
 # Datasets
-DATASET_PATH = os.path.join("datasets", "modelnet1-3")
+DATASET_PATH = os.path.join("datasets", "modelnet4-6")
 DATASET_FORMATS = [".jpg", ".jpeg", ".png"]
-DATASET_NUMBER_CATEGORIES = 0
-DATASET_NUMBER_MATERIALS = 3
+DATASET_NUMBER_CATEGORIES = 4
+DATASET_NUMBER_MATERIALS = 6
 DATASET_IS_SINGLELABEL = True
 DATASET_LABELS_FILE = os.path.join(DATASET_PATH, "labels.txt")
 IMAGE_SIZE = 224
 IMAGE_CHANNELS = 3
+DATASET_LOAD_DYNAMIC = True
 
 # Model
 #LEARNING_RATE_TYPES = ["Fixed", "exp", "cyclic", "cos_cyclic"]
@@ -35,7 +36,7 @@ TRAINING_EPOCHS = 20
 BATCH_SIZE_SINGLE = 128
 BATCH_SIZE_MULTI = 8
 DROPOUT_PROB = 0.5
-CKPT_PATH = os.path.join("checkpoints", "mn-sl-1-3-20")
+CKPT_PATH = os.path.join("checkpoints", "mn-sl-4-6-20")
 CKPT_FILE = "model.ckpt"
 CKPT_OVERWRITE = True
 

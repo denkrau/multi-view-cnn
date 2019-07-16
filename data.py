@@ -173,6 +173,7 @@ class Data(object):
 		n_objects_train = []
 		n_objects_test = []
 		for root, dirs, files in os.walk(params.DATASET_PATH):
+			dirs.sort()
 			set_ = os.path.basename(root)
 			if set_ == "test":
 				n_objects_test.append(int(len(files)/params.N_VIEWS))
@@ -186,3 +187,131 @@ class Data(object):
 			return self.filenames_train[0::params.N_VIEWS], self.filenames_test[0::params.N_VIEWS]
 		else:
 			return self.filenames_train, self.filenames_test
+
+	def get_dynamic_dataset(self, path, train=True, test=True, one_hot=None, create_labels=False):
+		#create lists to store training and test data
+		x_train = []
+		y_train = []
+		x_test = []
+		y_test = []
+		has_materials = True if params.DATASET_NUMBER_MATERIALS > 0 else False
+		has_categories = True if params.DATASET_NUMBER_CATEGORIES > 0 else False
+		n_labels = params.get_number_labels()
+		labels = self.load_labels()
+		if labels is not None and len(labels) != n_labels:
+			labels = None
+
+		#supported filename is
+		#path-to-dataset/category/set/category_imgId_matId_viewId.ext
+		first_run = True
+		for root, dirs, files in os.walk(path):
+			dirs.sort()
+			#on first run all categories are found as folders
+			#store them as labels and append each material id each time if necessary
+			if first_run and labels is None:
+				first_run = False
+				if params.DATASET_IS_SINGLELABEL:
+					labels = []
+					if has_categories and has_materials:
+						#labels: A1, A2, B1, B2, C1, C2
+						for d in dirs:
+							for i in range(params.DATASET_NUMBER_MATERIALS):
+								labels.append(d+"_"+str(i))
+					elif not has_categories and has_materials:
+						#labels: 1, 2, 3
+						for i in range(params.DATASET_NUMBER_MATERIALS):
+							labels.append(str(i))
+					elif has_categories and not has_materials:
+						#labels: A, B, C
+						labels = dirs
+					else:
+						print("[ERROR] Check number of categories and materials!")
+						break
+				else:
+					labels = dirs
+					for i in range(params.DATASET_NUMBER_MATERIALS):
+						labels.append(str(i))
+				create_labels = True
+
+			set_ = os.path.basename(root) # train or test
+			#sort for alphabetical iteration
+			for file in sorted(files):
+				if os.path.splitext(file)[1] in params.DATASET_FORMATS:
+					label_cat = os.path.basename(os.path.dirname(root))
+					if has_materials:
+						label_mat_id = os.path.splitext(file)[0].split("_")[2]
+					img = os.path.join(root, file)
+					#img = cv2.imread(os.path.join(root, file), 1 % params.IMAGE_CHANNELS)
+					#if img.dtype == np.uint8:
+						#img = img.astype(np.float32)
+						#img = img / 255.0
+					#if img.shape[0] != params.IMAGE_SIZE and img.shape[1] != params.IMAGE_SIZE:
+						#img = cv2.resize(img, (params.IMAGE_SIZE, params.IMAGE_SIZE), interpolation=cv2.INTER_AREA)
+					if set_ == "train" and train:
+						self.filenames_train.append(os.path.join(root, file))
+						x_train.append(img)
+						#add label depending on number of categories and materials
+						if has_categories and has_materials:
+							if params.DATASET_IS_SINGLELABEL:
+								y_train.append(labels.index(label_cat+"_"+label_mat_id))
+							else:
+								y_train.append([labels.index(label_cat), int(label_mat_id) + int(params.DATASET_NUMBER_CATEGORIES)])
+						elif not has_categories and has_materials:
+							y_train.append(int(label_mat_id))
+						elif has_categories and not has_materials:
+							y_train.append(labels.index(label_cat))
+					elif set_ == "test" and test:
+						self.filenames_test.append(os.path.join(root, file))
+						x_test.append(img)
+						if has_categories and has_materials:
+							if params.DATASET_IS_SINGLELABEL:
+								y_test.append(labels.index(label_cat+"_"+label_mat_id))
+							else:
+								y_test.append([labels.index(label_cat), int(label_mat_id) + int(params.DATASET_NUMBER_CATEGORIES)])
+						elif not has_categories and has_materials:
+							y_test.append(int(label_mat_id))
+						elif has_categories and not has_materials:
+							y_test.append(labels.index(label_cat))
+
+		if create_labels:
+			self.save_labels(labels)
+
+		#one-hot encode labels
+		#don't use tensorflows encoding due to evaluation in session runs
+		if one_hot:
+			if not params.DATASET_IS_SINGLELABEL and has_materials and has_categories:
+				y_test = [np.eye(n_labels)[i[0]] + np.eye(n_labels)[i[1]] for i in y_test]
+				y_train = [np.eye(n_labels)[i[0]] + np.eye(n_labels)[i[1]] for i in y_train]
+				y_train = np.array(y_train, dtype=np.float32)
+				y_test = np.array(y_test, dtype=np.float32)
+			else:
+				y_test = np.eye(n_labels, dtype=np.float32)[y_test]
+				y_train = np.eye(n_labels, dtype=np.float32)[y_train]
+
+		#x_train = np.reshape(x_train, [-1, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS])
+		#x_test = np.reshape(x_test, [-1, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS])
+		x_train = np.reshape(x_train, [-1, params.N_VIEWS])
+		x_test = np.reshape(x_test, [-1, params.N_VIEWS])
+		y_train = y_train[0::params.N_VIEWS]
+		y_test = y_test[0::params.N_VIEWS]
+
+		return x_train, y_train, x_test, y_test
+
+	def load_dynamic_dataset(self, x, y, batch):
+		batch_multi_views = []
+		for views_row in x:
+			multi_view = []
+			for view_path in views_row:
+				img = cv2.imread(view_path, 1 % params.IMAGE_CHANNELS)
+				if img.dtype == np.uint8:
+					img = img.astype(np.float32)
+					img = img / 255.0
+				if img.shape[0] != params.IMAGE_SIZE and img.shape[1] != params.IMAGE_SIZE:
+					img = cv2.resize(img, (params.IMAGE_SIZE, params.IMAGE_SIZE), interpolation=cv2.INTER_AREA)
+				multi_view.append(img)
+			np.reshape(multi_view, [-1, params.N_VIEWS, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS])
+			batch_multi_views.append(multi_view)
+
+		np.reshape(batch_multi_views, [-1, params.N_VIEWS, params.IMAGE_SIZE, params.IMAGE_SIZE, params.IMAGE_CHANNELS])
+		batch_labels = y
+		return batch_multi_views, batch_labels
