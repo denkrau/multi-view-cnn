@@ -149,7 +149,7 @@ if __name__ == "__main__":
 			if arg_groups or arg_write:
 				groups = sorted(zip(views, scores, group_ids, saliency), key=lambda x: (x[2], x[1]))
 				_, idx = np.unique([i[2] for i in groups], return_index=True)
-				fig, ax = plt.subplots(rows_in_plot, int(arg_views/rows_in_plot), figsize=(6.2, 3.2), dpi=100)
+				fig, ax = plt.subplots(rows_in_plot, int(arg_views/rows_in_plot), figsize=(6.2, 3.2), dpi=300)
 				ax = ax.reshape(-1)
 				for i in range(arg_views):
 					if i in idx:
@@ -171,7 +171,7 @@ if __name__ == "__main__":
 			if scores.size and group_ids.size and group_weights.size:
 				groups = sorted(zip(views, scores, group_ids, saliency), key=lambda x: (x[2], x[1]))
 				saliency = [s[3] for s in groups]
-			fig, ax = plt.subplots(rows_in_plot, int(arg_views/rows_in_plot), figsize=(6.2, 2), dpi=100)
+			fig, ax = plt.subplots(rows_in_plot, int(arg_views/rows_in_plot), figsize=(6.2, 2), dpi=300)
 			plt.subplots_adjust()
 			ax = ax.reshape(-1)
 			for i in range(arg_views):
@@ -196,7 +196,7 @@ if __name__ == "__main__":
 			n_filter = activation_convs.shape[-1]
 			grid_size = np.ceil(np.sqrt(n_filter)).astype(int)
 			for v in range(params.N_VIEWS):
-				fig, axes = plt.subplots(grid_size, grid_size, figsize=(6.2,8), dpi=100)
+				fig, axes = plt.subplots(grid_size, grid_size, figsize=(6.2,8), dpi=300)
 				fig.subplots_adjust(left=0.01, right=0.99, top=0.99, bottom=0.01, wspace=0.1)
 				axes = axes.reshape([-1])
 				for i, ax in enumerate(axes):
