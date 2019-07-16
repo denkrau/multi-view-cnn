@@ -40,7 +40,7 @@ if __name__ == "__main__":
 	unixOptions = "t:cp:"
 	gnuOptions = ["train=", "ckpt", "predict="]
 	#default params
-	arg_train = ""
+	arg_train = "multi"
 	arg_ckpt = None
 	arg_predict = ""
 	try:
