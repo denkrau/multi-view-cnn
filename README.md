@@ -36,7 +36,8 @@ Show the view scores, grouping, saliency maps and activations of single predicti
 
 Generate a dataset with
 
-    python generate_views.py
+    file = "path\\to\\generate_views.py"
+    exec(compile(open(file).read(), "file", 'exec'))
 
 using the Blender API. Hence, this needs to be called inside Blender's Python console in general.
 The view generation is based on a polygon mesh representation of objects like the ones from ModelNet.
